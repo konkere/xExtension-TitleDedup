@@ -3,7 +3,7 @@
   "author": "hao.chen",
   "license": "MIT",
   "description": "Mark target feed entries as read when their title already exists in source feeds.",
-  "version": 0.1,
+  "version": "0.1.0",
   "entrypoint": "TitleDedup",
   "type": "system"
 }

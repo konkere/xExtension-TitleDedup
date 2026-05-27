@@ -1,57 +1,59 @@
 # FreshRSS Title Dedup
 
-一个 FreshRSS 扩展，用来做“单向跨源同标题去重”。
+FreshRSS extension for one-way cross-feed deduplication by title.
 
-当目标源 B 收到新文章时，如果它的标题已经在参考源 A 中出现过，这篇文章会自动标记为已读。
+Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
 
-## 适合什么场景
+When a new entry arrives in target feed B, the extension marks it as read if the same title has already appeared in source feed A.
 
-- 同一条新闻会被多个资讯源重复发布
-- 你想保留主信源未读，把转载源自动跳过
-- 你希望规则按订阅分组，而不是全局混在一起
+## Use Cases
 
-## 功能
+- Multiple feeds publish the same story repeatedly
+- You want to keep a primary source unread while skipping reposting feeds
+- You want rules scoped to selected feeds instead of one global dedup rule
 
-- 单向规则：A 影响 B，B 不反向影响 A
-- 支持多个规则组
-- 每个规则组可配置多个参考源、多个目标源
-- 支持标题归一化：压缩空白、忽略大小写、移除标点
-- 支持维护回扫，处理“目标源先到、参考源后到”的情况
-- 提供可视化配置页，直接选择现有订阅
+## Features
 
-## 安装
+- One-way rules: A affects B, but B does not affect A
+- Multiple rule groups
+- Multiple source feeds and target feeds per rule
+- Title normalization: whitespace, case, punctuation
+- Maintenance backfill for cases where target entries arrive before source entries
+- Visual configuration page with existing feed selection
 
-把 [src/xExtension-TitleDedup](src/xExtension-TitleDedup) 整个目录复制到 FreshRSS 的 `extensions/` 目录下，然后在 FreshRSS 后台启用 `Title Dedup`。
+## Installation
 
-## 使用
+Copy [xExtension-TitleDedup](./xExtension-TitleDedup) into your FreshRSS `extensions/` directory, then enable `Title Dedup` from the FreshRSS extension manager.
 
-1. 打开扩展配置页。
-2. 若配置页是从侧边栏打开，先点“在完整页面中编辑”。
-3. 新建规则组。
-4. 选择参考源和目标源。
-5. 设置回看天数与标题归一化。
-6. 保存配置。
+## Usage
 
-## 规则说明
+1. Open the extension configuration page.
+2. If the page is opened from the sidebar, click the full-page editor first.
+3. Create a rule group.
+4. Select source feeds and target feeds.
+5. Set lookback days and title normalization options.
+6. Save the configuration.
 
-- `source_feed_ids`：参考源 A
-- `source_feed_names`：参考源 A 的订阅名，支持与 `source_feed_ids` 混用
-- `target_feed_ids`：目标源 B
-- `target_feed_names`：目标源 B 的订阅名，支持与 `target_feed_ids` 混用
-- `lookback_days`：只在最近 N 天内比对
-- `normalize_case`：忽略大小写
-- `normalize_whitespace`：压缩连续空白
-- `strip_punctuation`：移除标点后再比对
+## Rule Fields
 
-## 示例
+- `source_feed_ids`: source feeds A
+- `source_feed_names`: source feed names, can be mixed with `source_feed_ids`
+- `target_feed_ids`: target feeds B
+- `target_feed_names`: target feed names, can be mixed with `target_feed_ids`
+- `lookback_days`: compare only within the last N days
+- `normalize_case`: ignore letter case
+- `normalize_whitespace`: collapse repeated whitespace
+- `strip_punctuation`: compare after punctuation removal
 
-示例配置见 [examples/sample-config.json](examples/sample-config.json)。
+## Example
 
-## 仓库结构
+See [examples/sample-config.json](./examples/sample-config.json) for an example configuration.
 
-- `src/xExtension-TitleDedup/`：可安装的 FreshRSS 扩展目录
-- `examples/`：示例配置
-- `docs/`：设计说明
+## Repository Layout
+
+- `xExtension-TitleDedup/`: installable FreshRSS extension directory
+- `examples/`: sample configuration
+- `docs/`: design notes
 
 ## License
 
