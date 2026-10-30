@@ -22,7 +22,9 @@ When a new entry arrives in a target feed and an entry with the same normalized 
 
 ## How it works
 
-### New entries (`entry_before_insert` hook)
+### New entries (`entry_before_add` hook)
+
+The hook runs for new entries only, after the user's filter actions, so an entry already marked as read by a filter is treated as read.
 
 FreshRSS keeps new entries in `_entrytmp` until the end of a refresh, then moves them to `_entry`. Lookups therefore cover both tables, so copies fetched in the same refresh are compared too.
 
@@ -35,6 +37,14 @@ On the first new entry of a request that concerns a rule, the titles of the rule
 A read entry only serves as a reference: it never marks other entries. Otherwise a copy marked by an earlier pass could mark the surviving original.
 
 Updated versions of known entries are ignored.
+
+### Title normalization
+
+HTML entities are decoded and invisible format characters (soft hyphen, zero-width space) removed. Then, depending on the rule:
+
+- whitespace: runs of whitespace collapse to one space;
+- case: lower case, and `ё` compares equal to `е`;
+- punctuation: punctuation and symbols become spaces, so `A—B` and `A — B` compare equal.
 
 ### One-off backfill (`freshrss_user_maintenance` hook)
 

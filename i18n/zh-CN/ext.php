@@ -30,7 +30,7 @@ return [
 		'normalize' => [
 			'title' => '归一化',
 			'whitespace' => '压缩空白',
-			'case' => '忽略大小写',
+			'case' => '忽略大小写（含 ё/е）',
 			'punctuation' => '删除标点符号',
 		],
 		'save' => '保存',

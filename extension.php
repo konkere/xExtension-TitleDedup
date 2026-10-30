@@ -13,7 +13,7 @@ final class TitleDedupExtension extends Minz_Extension
     private const BACKFILL_KEY = 'title_dedup_backfill_done';
 
     private ?DedupService $service = null;
-    /** @var list<array{id:string,name:string,label:string}>|null */
+    /** @var list<array{id:string,name:string,label:string,group:string}>|null */
     private ?array $feedOptionsCache = null;
     /** @var array<string,list<string>>|null */
     private ?array $feedNameMapCache = null;
@@ -23,8 +23,11 @@ final class TitleDedupExtension extends Minz_Extension
     {
         parent::init();
         $this->registerTranslates();
+        // FreshRSS re-initialises extensions for each user during a cron run.
+        $this->service = null;
 
-        $this->registerHook('entry_before_insert', [$this, 'onEntryBeforeInsert']);
+        // Called for new entries only, after the user's filter actions were applied.
+        $this->registerHook('entry_before_add', [$this, 'onEntryBeforeAdd']);
         $this->registerHook('freshrss_user_maintenance', [$this, 'onUserMaintenance']);
     }
 
@@ -37,8 +40,8 @@ final class TitleDedupExtension extends Minz_Extension
         }
 
         $rulesPost = $_POST['rules'] ?? null;
-        if (is_array($rulesPost) && isset($_POST['rule_action'])) {
-            $rulesPost = $this->applyUiAction($rulesPost, (string)$_POST['rule_action']);
+        if (is_array($rulesPost)) {
+            $rulesPost = $this->applyUiAction($rulesPost, (string)($_POST['rule_action'] ?? ''));
         }
         $parsed = is_array($rulesPost)
             ? RuleRepository::buildConfigFromForm($rulesPost)
@@ -52,12 +55,13 @@ final class TitleDedupExtension extends Minz_Extension
             return;
         }
 
-        $config = $this->getUserConfiguration();
-        $config[self::CONFIG_KEY] = json_encode($parsed, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        // Rules changed: let the next maintenance run check the whole lookback window once.
-        $config[self::BACKFILL_KEY] = false;
-        $this->setUserConfiguration($config);
-        $this->service = null;
+        $json = (string)json_encode($parsed, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($json !== $this->getUserConfigurationString(self::CONFIG_KEY)) {
+            $this->setUserConfigurationValue(self::CONFIG_KEY, $json);
+            // Rules changed: let the next maintenance run check the whole lookback window once.
+            $this->setUserConfigurationValue(self::BACKFILL_KEY, false);
+            $this->service = null;
+        }
         Minz_Request::setGoodNotification(_t('ext.title_dedup.notify.saved'));
     }
 
@@ -67,6 +71,21 @@ final class TitleDedupExtension extends Minz_Extension
      */
     private function applyUiAction(array $rulesPost, string $action): array
     {
+        // A feed chosen in a picker counts even if "Add" was not clicked before saving.
+        foreach ($rulesPost as $i => $rule) {
+            if (!is_array($rule)) {
+                continue;
+            }
+            foreach (['source', 'target'] as $side) {
+                $pickedId = (string)($rule[$side . '_feed_picker'] ?? '');
+                if ($pickedId !== '') {
+                    $idsKey = $side . '_feed_ids';
+                    $current = is_array($rule[$idsKey] ?? null) ? $rule[$idsKey] : [];
+                    $rulesPost[$i][$idsKey] = $this->uniqueIds(array_merge($current, [$pickedId]));
+                }
+            }
+        }
+
         if ($action === 'add_rule') {
             array_unshift($rulesPost, $this->blankRulePost());
             return $rulesPost;
@@ -77,24 +96,6 @@ final class TitleDedupExtension extends Minz_Extension
             if (isset($rulesPost[$ruleIndex])) {
                 unset($rulesPost[$ruleIndex]);
                 $rulesPost = array_values($rulesPost);
-            }
-            return $rulesPost;
-        }
-
-        if (strpos($action, 'add_') === 0) {
-            $payload = explode(':', substr($action, 4), 2);
-            $side = $payload[0] ?? '';
-            $ruleIndex = isset($payload[1]) ? (int)$payload[1] : null;
-            if ($ruleIndex !== null && isset($rulesPost[$ruleIndex]) && in_array($side, ['source', 'target'], true)) {
-                $pickerKey = $side . '_feed_picker';
-                $pickedId = (string)($rulesPost[$ruleIndex][$pickerKey] ?? '');
-                if ($pickedId !== '') {
-                    $idsKey = $side . '_feed_ids';
-                    $rulesPost[$ruleIndex][$idsKey] = $this->uniqueIds(array_merge(
-                        $rulesPost[$ruleIndex][$idsKey] ?? [],
-                        [$pickedId]
-                    ));
-                }
             }
             return $rulesPost;
         }
@@ -136,7 +137,7 @@ final class TitleDedupExtension extends Minz_Extension
         ];
     }
 
-    public function onEntryBeforeInsert(FreshRSS_Entry $entry): FreshRSS_Entry
+    public function onEntryBeforeAdd(FreshRSS_Entry $entry): FreshRSS_Entry
     {
         try {
             $service = $this->service();
@@ -152,16 +153,14 @@ final class TitleDedupExtension extends Minz_Extension
     public function onUserMaintenance(): void
     {
         try {
-            if (!empty($this->getUserConfiguration()[self::BACKFILL_KEY])) {
+            if ($this->getUserConfigurationBool(self::BACKFILL_KEY) === true) {
                 return;
             }
             $service = $this->service();
             if ($service->hasRules()) {
                 $service->backfill();
             }
-            $config = $this->getUserConfiguration();
-            $config[self::BACKFILL_KEY] = true;
-            $this->setUserConfiguration($config);
+            $this->setUserConfigurationValue(self::BACKFILL_KEY, true);
         } catch (\Throwable $e) {
             Minz_Log::error('Title Dedup: ' . $e->getMessage());
         }
@@ -182,12 +181,11 @@ final class TitleDedupExtension extends Minz_Extension
      */
     private function rulesJson(): string
     {
-        $json = $this->getUserConfiguration()[self::CONFIG_KEY] ?? null;
-        if (is_string($json) && $json !== '') {
+        $json = $this->getUserConfigurationString(self::CONFIG_KEY);
+        if ($json !== null && $json !== '') {
             return $json;
         }
-        $legacy = $this->getSystemConfiguration()[self::CONFIG_KEY] ?? '';
-        return is_string($legacy) ? $legacy : '';
+        return $this->getSystemConfigurationString(self::CONFIG_KEY) ?? '';
     }
 
     /** @return list<array<string,mixed>> */
@@ -197,27 +195,32 @@ final class TitleDedupExtension extends Minz_Extension
         return $parsed['rules'] ?? [];
     }
 
-    /** @return list<array{id:string,name:string,label:string}> */
+    /**
+     * Feeds grouped by category, in the user's category order.
+     *
+     * @return list<array{id:string,name:string,label:string,group:string}>
+     */
     public function feedOptions(): array
     {
         if ($this->feedOptionsCache !== null) {
             return $this->feedOptionsCache;
         }
 
-        $feedDao = FreshRSS_Factory::createFeedDao();
         $feeds = [];
-        foreach ($feedDao->listFeeds() as $feed) {
-            $name = (string)$feed->name(true);
-            $feeds[] = [
-                'id' => (string)$feed->id(),
-                'name' => $name,
-                'label' => $name,
-            ];
+        foreach (FreshRSS_Factory::createCategoryDao()->listSortedCategories(true) as $category) {
+            $group = [];
+            foreach ($category->feeds() as $feed) {
+                $name = $feed->name(true);
+                $group[] = [
+                    'id' => (string)$feed->id(),
+                    'name' => $name,
+                    'label' => $name,
+                    'group' => $category->name(),
+                ];
+            }
+            usort($group, static fn(array $a, array $b): int => strcasecmp($a['label'], $b['label']));
+            array_push($feeds, ...$group);
         }
-
-        usort($feeds, static function ($left, $right) {
-            return strcasecmp($left['label'], $right['label']);
-        });
 
         $this->feedOptionsCache = $feeds;
         return $this->feedOptionsCache;

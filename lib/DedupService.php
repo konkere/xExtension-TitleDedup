@@ -55,7 +55,7 @@ final class DedupService
      */
     public function onNewEntry(FreshRSS_Entry $entry): void
     {
-        if ($entry->isUpdated()) {
+        if ($entry->isUpdated() === true) {
             // Updated version of an entry we already know: nothing new to deduplicate.
             return;
         }
@@ -76,7 +76,7 @@ final class DedupService
                 continue;
             }
             $this->load($index);
-            if ($this->process($index, $norm, $feedId, $entry->id(), $entry->isRead(), true)) {
+            if ($this->process($index, $norm, $feedId, $entry->id(), $entry->isRead() === true, true)) {
                 $entry->_isRead(true);
             }
         }

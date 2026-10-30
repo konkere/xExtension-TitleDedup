@@ -30,7 +30,7 @@ return [
 		'normalize' => [
 			'title' => 'Title comparison',
 			'whitespace' => 'Collapse whitespace',
-			'case' => 'Ignore case',
+			'case' => 'Ignore case (and ё/е)',
 			'punctuation' => 'Ignore punctuation and symbols',
 		],
 		'save' => 'Save',

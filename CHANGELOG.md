@@ -15,3 +15,6 @@
 - Updated entries are no longer re-checked.
 - Feeds can be both source and target: the first copy of a story stays unread and later copies are marked as read. Read entries never mark other entries, so saving the rules again is safe.
 - The extension sits at the repository root and can be cloned directly into `extensions/`.
+- Uses the `entry_before_add` hook: only new entries are checked, after the user's filter actions.
+- Title comparison: punctuation is replaced by spaces (`A—B` equals `A — B`), invisible characters such as soft hyphens are ignored, `ё` equals `е` when case is ignored.
+- Settings page: pressing Enter in a text field no longer deletes the rule; a feed chosen in a picker is kept on save even without clicking "Add"; feeds are grouped by category; saving unchanged rules does not re-run the backfill.

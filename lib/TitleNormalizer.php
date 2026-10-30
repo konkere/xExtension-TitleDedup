@@ -9,20 +9,23 @@ final class TitleNormalizer
     public static function normalize(string $title, array $options): string
     {
         // FreshRSS stores titles HTML-escaped; compare the visible text.
-        $value = trim(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $value = html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // Invisible format characters (soft hyphen, zero-width space…) never matter.
+        $value = preg_replace('/\p{Cf}+/u', '', $value) ?? $value;
 
         if (!empty($options['strip_punctuation'])) {
-            $value = preg_replace('/[\p{P}\p{S}]+/u', '', $value) ?? $value;
-            // Removing a dash between two words leaves a double space behind.
-            $value = preg_replace('/ {2,}/u', ' ', $value) ?? $value;
+            // Replace rather than remove, so "A—B" and "A — B" compare equal.
+            $value = preg_replace('/[\p{P}\p{S}]+/u', ' ', $value) ?? $value;
         }
 
-        if (!empty($options['normalize_whitespace'])) {
+        if (!empty($options['normalize_whitespace']) || !empty($options['strip_punctuation'])) {
             $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
         }
 
         if (!empty($options['normalize_case'])) {
-            $value = mb_strtolower($value, 'UTF-8');
+            // Russian texts use "ё" inconsistently.
+            $value = strtr(mb_strtolower($value, 'UTF-8'), ['ё' => 'е']);
         }
 
         return trim($value);
