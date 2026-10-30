@@ -176,16 +176,19 @@ final class TitleDedupExtension extends Minz_Extension
             return $this->feedOptionsCache;
         }
 
+        // FreshRSS stores feed and category names HTML-escaped; keep plain text here,
+        // the template escapes it once.
+        $plain = static fn(string $value): string => html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $feeds = [];
         foreach (FreshRSS_Factory::createCategoryDao()->listSortedCategories(true) as $category) {
             $group = [];
             foreach ($category->feeds() as $feed) {
-                $name = $feed->name(true);
+                $name = $plain($feed->name(true));
                 $group[] = [
                     'id' => (string)$feed->id(),
                     'name' => $name,
                     'label' => $name,
-                    'group' => $category->name(),
+                    'group' => $plain($category->name()),
                 ];
             }
             usort($group, static fn(array $a, array $b): int => strcmp(
@@ -258,7 +261,8 @@ final class TitleDedupExtension extends Minz_Extension
 
     private function normalizeFeedName(string $feedName): string
     {
-        return mb_strtolower(trim((string)$feedName), 'UTF-8');
+        $feedName = html_entity_decode($feedName, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return mb_strtolower(trim($feedName), 'UTF-8');
     }
 
     /** @return list<string> */
