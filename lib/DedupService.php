@@ -103,7 +103,9 @@ final class DedupService
         if ($isSource) {
             // 2. The first source copy of a title marks target copies that arrived before it.
             //    A copy that is itself a duplicate must not, or it would mark the original.
-            if (!$duplicate) {
+            //    Nor must a copy that is already read: it may be a duplicate marked by an
+            //    earlier pass, and a repeated backfill would then mark the original too.
+            if (!$duplicate && !$isRead) {
                 $this->markTargets($state, $norm, $feedId);
             }
             $state['src'][$norm][$feedId] = true;
