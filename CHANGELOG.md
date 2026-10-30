@@ -1,6 +1,6 @@
 # Changelog
 
-[Русская версия](./CHANGELOG.ru.md)
+[Русская версия](./CHANGELOG.ru.md) · [中文](./CHANGELOG.zh-CN.md)
 
 ## 0.2.0
 
@@ -20,3 +20,5 @@
 - Feed selection with checkboxes grouped by category, a filter and "Select shown" / "Clear shown" buttons; "Targets are the same as sources" option.
 - Styles and script of the settings page moved to static files: FreshRSS's Content Security Policy blocked the inline ones, so they never applied.
 - Settings page: pressing Enter in a text field no longer deletes the rule; the backfill re-runs only when the effective rules change (not on renaming or adding an empty rule); the rule title follows its name as you type.
+- The settings page works in the sidebar of the extensions page too: its styles and script were not loaded there.
+- Feed and category names with `&` or quotes are shown correctly in the settings, and feed names in rules match them.

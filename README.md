@@ -37,10 +37,10 @@ The repository root is the extension itself. Clone it into your FreshRSS `extens
 
 ```sh
 cd /path/to/FreshRSS/extensions
-git clone https://github.com/konkere/xExtension-TitleDedup.git
+git clone https://github.com/chenhaoc/freshrss-dedup-extension.git xExtension-TitleDedup
 ```
 
-Update with `git pull` in that directory.
+Update with `git pull` in `extensions/xExtension-TitleDedup`.
 
 Tested with FreshRSS 1.30.4 (PHP 8.3, PostgreSQL).
 
@@ -50,32 +50,32 @@ Version 0.1 was a system extension; 0.2 is a user extension. After upgrading, en
 
 ## Usage
 
-1. Open the extension settings. In the sidebar panel the filter and bulk selection buttons do not work: use "Edit in full page".
-2. Tick the source feeds. Type in the filter (e.g. a site name) and use "Select shown" to tick all matching feeds at once.
+1. Open the extension settings, in the sidebar panel or with "Edit in full page" for more room.
+2. Tick the source feeds. Type in the filter (a feed or category name, e.g. a site name) and use "Select shown" to tick all matching feeds at once. When closed, the list shows the selected feeds.
 3. Tick the target feeds, or check "Targets are the same as sources" to deduplicate a group of feeds among themselves.
 4. Set the lookback period and the title comparison options.
 5. Save. "Add rule" adds another rule.
 
 ## Rule Fields
 
+Rules are stored as JSON in the user's extension configuration (see [examples/sample-config.json](./examples/sample-config.json)). Each rule has:
+
+- `name`: rule name, shown in the settings only
+- `enabled`: default `true`
 - `source_feed_ids`: source feeds A
 - `source_feed_names`: source feed names, can be mixed with `source_feed_ids`
 - `target_feed_ids`: target feeds B
 - `target_feed_names`: target feed names, can be mixed with `target_feed_ids`
+- `lookback_days`: compare only within the last N days, 1 to 3650, default 14
+- `normalize_whitespace`: collapse repeated whitespace, default `true`
+- `normalize_case`: ignore letter case, `ё` equals `е`, default `true`
+- `strip_punctuation`: ignore punctuation and decorative symbols, default `false` in JSON; a new rule in the settings page has it on
 
-Feed names are resolved when the rules are read. Saving from the settings page stores feed IDs only: names of feeds that do not exist at that moment are dropped.
-- `lookback_days`: compare only within the last N days
-- `normalize_case`: ignore letter case
-- `normalize_whitespace`: collapse repeated whitespace
-- `strip_punctuation`: compare after punctuation removal
-
-## Example
-
-See [examples/sample-config.json](./examples/sample-config.json) for an example configuration.
+A rule without source or target feeds does nothing. Feed names are matched case-insensitively when the rules are read. Saving from the settings page stores feed IDs only: names of feeds that do not exist at that moment are dropped.
 
 ## Repository Layout
 
-- `extension.php`, `configure.php(tml)`, `metadata.json`, `lib/`, `i18n/`: the extension
+- `extension.php`, `configure.php(tml)`, `metadata.json`, `lib/`, `i18n/`, `static/`: the extension
 - `examples/`: sample configuration
 - `docs/`: design notes
 

@@ -1,6 +1,6 @@
 # Title Dedup: design notes
 
-[Русская версия](./spec.ru.md)
+[Русская версия](./spec.ru.md) · [中文](./spec.zh-CN.md)
 
 ## Goal
 
@@ -48,7 +48,7 @@ HTML entities are decoded and invisible format characters (soft hyphen, zero-wid
 
 ### One-off backfill (`freshrss_user_maintenance` hook)
 
-After the rules are saved, the next maintenance run replays the existing entries within the lookback window in arrival order (by entry ID), with the same logic as above. Later maintenance runs do nothing, so an entry the user marks as unread again stays unread. Saving the rules again repeats the backfill, which leaves already deduplicated entries unchanged.
+After the effective rules change (renaming a rule or adding an empty one does not count), the next maintenance run replays the existing entries within the lookback window in arrival order (by entry ID), with the same logic as above. Later maintenance runs do nothing, so an entry the user marks as unread again stays unread. Each later change of the rules repeats the backfill, which leaves already deduplicated entries unchanged.
 
 ## Configuration
 
@@ -63,6 +63,8 @@ Stored per user, as JSON, in the extension's user configuration. Each rule has:
 - `normalize_case`
 - `strip_punctuation`
 
+Feed names are resolved to IDs when the rules are read, case-insensitively and after decoding HTML entities. The settings page stores feed IDs only.
+
 Version 0.1 stored the rules in the system configuration; they are still read from there until the user saves the settings.
 
 ## Files
@@ -70,6 +72,7 @@ Version 0.1 stored the rules in the system configuration; they are still read fr
 - `metadata.json`
 - `extension.php`: hooks, settings form handling, configuration storage
 - `configure.php`, `configure.phtml`: settings page
+- `static/configure.css`, `static/configure.js`: styles and script of the settings page, as files because FreshRSS's Content Security Policy blocks inline ones; the script is also loaded on the extensions page, so the settings work in the sidebar
 - `lib/DedupService.php`: deduplication logic
 - `lib/DedupDAO.php`: database queries
 - `lib/TitleNormalizer.php`
