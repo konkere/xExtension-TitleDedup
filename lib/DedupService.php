@@ -24,6 +24,9 @@ final class DedupService
 
     private ?TitleDedupDAO $dao = null;
 
+    /** @var list<string>|null entries to mark as read at the end of the backfill */
+    private ?array $batch = null;
+
     /** @param array{rules?:list<array<string,mixed>>} $config */
     public function __construct(array $config, callable $feedIdsByName)
     {
@@ -73,25 +76,44 @@ final class DedupService
                 continue;
             }
             $this->load($index);
-            $state = &$this->state[$index];
-
-            // 1. A target entry whose title is already known from another source feed.
-            if ($isTarget && !$entry->isRead() && $this->knownElsewhere($state['src'][$norm] ?? [], $feedId)) {
+            if ($this->process($index, $norm, $feedId, $entry->id(), $entry->isRead(), true)) {
                 $entry->_isRead(true);
             }
-
-            // 2. A source entry arriving after target copies: mark those copies.
-            if ($isSource) {
-                $this->markTargets($state, $norm, $feedId);
-                $state['src'][$norm][$feedId] = true;
-            }
-
-            // 3. Remember an unread target entry, in case its source arrives later.
-            if ($isTarget && !$entry->isRead()) {
-                $state['tgt'][$norm][] = [$entry->id(), true, $feedId];
-            }
-            unset($state);
         }
+    }
+
+    /**
+     * Apply a rule to one entry, in arrival order.
+     *
+     * When a feed is both source and target (e.g. all sections of a site listed on both
+     * sides), the first copy stays unread and every later copy is marked as read.
+     *
+     * @return bool whether this entry is a duplicate and must be marked as read
+     */
+    private function process(int $index, string $norm, int $feedId, string $id, bool $isRead, bool $tmp): bool
+    {
+        $rule = $this->rules[$index];
+        $isSource = isset($rule['source_set'][$feedId]);
+        $isTarget = isset($rule['target_set'][$feedId]);
+        $state = &$this->state[$index];
+
+        // 1. A target entry whose title is already known from another source feed.
+        $duplicate = $isTarget && !$isRead && $this->knownElsewhere($state['src'][$norm] ?? [], $feedId);
+
+        if ($isSource) {
+            // 2. The first source copy of a title marks target copies that arrived before it.
+            //    A copy that is itself a duplicate must not, or it would mark the original.
+            if (!$duplicate) {
+                $this->markTargets($state, $norm, $feedId);
+            }
+            $state['src'][$norm][$feedId] = true;
+        }
+
+        // 3. Remember an unread target entry, in case its source arrives later.
+        if ($isTarget && !$isRead && !$duplicate) {
+            $state['tgt'][$norm][] = [$id, $tmp, $feedId];
+        }
+        return $duplicate;
     }
 
     /**
@@ -101,21 +123,31 @@ final class DedupService
      */
     public function backfill(): void
     {
-        foreach (array_keys($this->rules) as $index) {
-            unset($this->state[$index]);
-            $this->load($index, false);
-            $state = &$this->state[$index];
-            foreach ($state['tgt'] as $norm => $targets) {
-                $src = $state['src'][$norm] ?? [];
-                $ids = [];
-                foreach ($targets as [$id, , $feedId]) {
-                    if ($this->knownElsewhere($src, $feedId)) {
-                        $ids[] = $id;
-                    }
+        foreach ($this->rules as $index => $rule) {
+            // Replay the existing entries in arrival order, as if they were new.
+            $rows = $this->dao()->fetchTitles(
+                array_keys($rule['source_set']),
+                array_keys($rule['target_set']),
+                $this->since($rule),
+                false
+            );
+            usort($rows, static fn(array $a, array $b): int => (int)$a['id'] <=> (int)$b['id']);
+
+            $this->state[$index] = ['src' => [], 'tgt' => []];
+            $this->batch = [];
+            foreach ($rows as $row) {
+                $norm = $this->normalize($row['title'], $rule);
+                if ($norm === '') {
+                    continue;
                 }
-                $this->markRead($ids, []);
+                if ($this->process($index, $norm, $row['id_feed'], $row['id'], $row['is_read'] !== 0, false)) {
+                    $this->batch[] = $row['id'];
+                }
             }
-            unset($state, $this->state[$index]);
+            $ids = $this->batch;
+            $this->batch = null;
+            $this->markRead($ids, []);
+            unset($this->state[$index]);
         }
     }
 
@@ -183,6 +215,10 @@ final class DedupService
      */
     private function markRead(array $ids, array $tmpIds): void
     {
+        if ($this->batch !== null) {
+            array_push($this->batch, ...$ids);
+            $ids = [];
+        }
         if ($ids !== []) {
             FreshRSS_Factory::createEntryDao()->markRead($ids, true);
         }
