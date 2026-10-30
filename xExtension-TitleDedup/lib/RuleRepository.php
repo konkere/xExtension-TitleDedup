@@ -1,8 +1,14 @@
 <?php
+declare(strict_types=1);
 
 final class RuleRepository
 {
-    public static function buildConfigFromForm($rules)
+    /**
+     * Build the configuration from the settings form.
+     *
+     * @return array{rules:list<array<string,mixed>>}|null
+     */
+    public static function buildConfigFromForm(mixed $rules): ?array
     {
         if (!is_array($rules)) {
             return null;
@@ -14,28 +20,32 @@ final class RuleRepository
                 continue;
             }
 
-            $sourceFeedIds = self::normalizeIds($rule['source_feed_ids'] ?? []);
-            $targetFeedIds = self::normalizeIds($rule['target_feed_ids'] ?? []);
-            $normalizeAll = self::normalizeBool($rule['normalize_all'] ?? false);
+            // Forms of version 0.1 had a single checkbox for all three options.
+            $all = isset($rule['normalize_all']) ? self::normalizeBool($rule['normalize_all']) : null;
 
             $normalizedRules[] = [
                 'name' => trim((string)($rule['name'] ?? '')),
                 'enabled' => self::normalizeBool($rule['enabled'] ?? false),
-                'source_feed_ids' => $sourceFeedIds,
+                'source_feed_ids' => self::normalizeIds($rule['source_feed_ids'] ?? []),
                 'source_feed_names' => [],
-                'target_feed_ids' => $targetFeedIds,
+                'target_feed_ids' => self::normalizeIds($rule['target_feed_ids'] ?? []),
                 'target_feed_names' => [],
-                'lookback_days' => max(1, (int)($rule['lookback_days'] ?? 14)),
-                'normalize_whitespace' => $normalizeAll,
-                'normalize_case' => $normalizeAll,
-                'strip_punctuation' => $normalizeAll,
+                'lookback_days' => self::lookback($rule['lookback_days'] ?? 14),
+                'normalize_whitespace' => $all ?? self::normalizeBool($rule['normalize_whitespace'] ?? false),
+                'normalize_case' => $all ?? self::normalizeBool($rule['normalize_case'] ?? false),
+                'strip_punctuation' => $all ?? self::normalizeBool($rule['strip_punctuation'] ?? false),
             ];
         }
 
         return ['rules' => $normalizedRules];
     }
 
-    public static function parseConfig($json)
+    /**
+     * Parse the stored JSON configuration.
+     *
+     * @return array{rules:list<array<string,mixed>>}|null null when the JSON is invalid
+     */
+    public static function parseConfig(string $json): ?array
     {
         $json = trim($json);
         if ($json === '') {
@@ -58,19 +68,14 @@ final class RuleRepository
                 continue;
             }
 
-            $sourceFeedIds = self::normalizeIds($rule['source_feed_ids'] ?? []);
-            $targetFeedIds = self::normalizeIds($rule['target_feed_ids'] ?? []);
-            $sourceFeedNames = self::normalizeNames($rule['source_feed_names'] ?? []);
-            $targetFeedNames = self::normalizeNames($rule['target_feed_names'] ?? []);
-
             $rules[] = [
                 'name' => trim((string)($rule['name'] ?? '')),
                 'enabled' => (bool)($rule['enabled'] ?? true),
-                'source_feed_ids' => $sourceFeedIds,
-                'source_feed_names' => $sourceFeedNames,
-                'target_feed_ids' => $targetFeedIds,
-                'target_feed_names' => $targetFeedNames,
-                'lookback_days' => max(1, (int)($rule['lookback_days'] ?? 14)),
+                'source_feed_ids' => self::normalizeIds($rule['source_feed_ids'] ?? []),
+                'source_feed_names' => self::normalizeNames($rule['source_feed_names'] ?? []),
+                'target_feed_ids' => self::normalizeIds($rule['target_feed_ids'] ?? []),
+                'target_feed_names' => self::normalizeNames($rule['target_feed_names'] ?? []),
+                'lookback_days' => self::lookback($rule['lookback_days'] ?? 14),
                 'normalize_whitespace' => (bool)($rule['normalize_whitespace'] ?? true),
                 'normalize_case' => (bool)($rule['normalize_case'] ?? true),
                 'strip_punctuation' => (bool)($rule['strip_punctuation'] ?? false),
@@ -80,41 +85,40 @@ final class RuleRepository
         return ['rules' => $rules];
     }
 
-    private static function normalizeIds($ids)
+    /** @return list<string> */
+    public static function normalizeIds(mixed $ids): array
     {
         if (!is_array($ids)) {
             return [];
         }
 
-        $ids = array_map(static function ($id) {
-            return (string)(int)$id;
-        }, $ids);
-        $ids = array_values(array_unique(array_filter($ids, static function ($id) {
-            return $id !== '0';
-        })));
+        $ids = array_map(static fn($id): string => (string)(int)$id, $ids);
+        $ids = array_values(array_unique(array_filter($ids, static fn(string $id): bool => $id !== '0')));
         sort($ids, SORT_NUMERIC);
 
         return $ids;
     }
 
-    private static function normalizeNames($names)
+    /** @return list<string> */
+    private static function normalizeNames(mixed $names): array
     {
         if (!is_array($names)) {
             return [];
         }
 
-        $names = array_map(static function ($name) {
-            return trim((string)$name);
-        }, $names);
-        $names = array_values(array_unique(array_filter($names, static function ($name) {
-            return $name !== '';
-        })));
+        $names = array_map(static fn($name): string => trim((string)$name), $names);
+        $names = array_values(array_unique(array_filter($names, static fn(string $name): bool => $name !== '')));
         sort($names, SORT_STRING);
 
         return $names;
     }
 
-    private static function normalizeBool($value)
+    private static function lookback(mixed $value): int
+    {
+        return min(3650, max(1, (int)$value));
+    }
+
+    private static function normalizeBool(mixed $value): bool
     {
         if (is_bool($value)) {
             return $value;

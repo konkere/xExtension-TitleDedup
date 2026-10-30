@@ -8,9 +8,11 @@ FreshRSS extension that marks target feed entries as read when the same title al
 
 - Multiple rule groups
 - Multiple source feeds and target feeds
-- Title normalization
-- Maintenance backfill
-- Visual configuration page
+- Title normalization (whitespace, case, punctuation)
+- Detection of duplicates fetched in the same refresh
+- One-off backfill after the rules are saved
+- Per-user rules
+- Visual configuration page (English, Russian, Chinese)
 
 ## Installation
 

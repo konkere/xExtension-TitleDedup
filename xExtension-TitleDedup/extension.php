@@ -1,27 +1,37 @@
 <?php
+declare(strict_types=1);
 
 require_once __DIR__ . '/lib/TitleNormalizer.php';
 require_once __DIR__ . '/lib/RuleRepository.php';
+require_once __DIR__ . '/lib/DedupDAO.php';
 require_once __DIR__ . '/lib/DedupService.php';
 
 final class TitleDedupExtension extends Minz_Extension
 {
     private const CONFIG_KEY = 'title_dedup_rules_json';
+    /** Whether the one-off backfill has run since the rules were last saved. */
+    private const BACKFILL_KEY = 'title_dedup_backfill_done';
 
-    private $cachedRules = null;
-    private $feedOptionsCache = null;
-    private $feedNameMapCache = null;
+    private ?DedupService $service = null;
+    /** @var list<array{id:string,name:string,label:string}>|null */
+    private ?array $feedOptionsCache = null;
+    /** @var array<string,list<string>>|null */
+    private ?array $feedNameMapCache = null;
 
-    public function init()
+    #[\Override]
+    public function init(): void
     {
         parent::init();
+        $this->registerTranslates();
 
         $this->registerHook('entry_before_insert', [$this, 'onEntryBeforeInsert']);
         $this->registerHook('freshrss_user_maintenance', [$this, 'onUserMaintenance']);
     }
 
-    public function handleConfigureAction()
+    #[\Override]
+    public function handleConfigureAction(): void
     {
+        $this->registerTranslates();
         if (!Minz_Request::isPost()) {
             return;
         }
@@ -38,22 +48,25 @@ final class TitleDedupExtension extends Minz_Extension
             $parsed = RuleRepository::parseConfig($rulesJson);
         }
         if ($parsed === null) {
-            Minz_Request::setBadNotification('规则配置无效，未保存。');
+            Minz_Request::setBadNotification(_t('ext.title_dedup.notify.invalid'));
             return;
         }
 
-        $config = $this->readSystemConfiguration();
+        $config = $this->getUserConfiguration();
         $config[self::CONFIG_KEY] = json_encode($parsed, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $this->setSystemConfiguration($config);
-        Minz_Request::setGoodNotification('去重规则已保存。');
+        // Rules changed: let the next maintenance run check the whole lookback window once.
+        $config[self::BACKFILL_KEY] = false;
+        $this->setUserConfiguration($config);
+        $this->service = null;
+        Minz_Request::setGoodNotification(_t('ext.title_dedup.notify.saved'));
     }
 
-    private function applyUiAction($rulesPost, $action)
+    /**
+     * @param array<mixed> $rulesPost
+     * @return array<mixed>
+     */
+    private function applyUiAction(array $rulesPost, string $action): array
     {
-        if (!is_array($rulesPost)) {
-            return $rulesPost;
-        }
-
         if ($action === 'add_rule') {
             array_unshift($rulesPost, $this->blankRulePost());
             return $rulesPost;
@@ -106,7 +119,8 @@ final class TitleDedupExtension extends Minz_Extension
         return $rulesPost;
     }
 
-    private function blankRulePost()
+    /** @return array<string,mixed> */
+    private function blankRulePost(): array
     {
         return [
             'name' => '',
@@ -116,53 +130,75 @@ final class TitleDedupExtension extends Minz_Extension
             'target_feed_ids' => [],
             'target_feed_picker' => '',
             'lookback_days' => 14,
-            'normalize_all' => 1,
             'normalize_whitespace' => 1,
             'normalize_case' => 1,
             'strip_punctuation' => 1,
         ];
     }
 
-    public function onEntryBeforeInsert(FreshRSS_Entry $entry)
+    public function onEntryBeforeInsert(FreshRSS_Entry $entry): FreshRSS_Entry
     {
-        $this->applyRules($entry, false);
+        try {
+            $service = $this->service();
+            if ($service->hasRules()) {
+                $service->onNewEntry($entry);
+            }
+        } catch (\Throwable $e) {
+            Minz_Log::error('Title Dedup: ' . $e->getMessage());
+        }
         return $entry;
     }
 
-    public function onUserMaintenance()
+    public function onUserMaintenance(): void
     {
-        $service = $this->service();
-        foreach ($service->rules() as $rule) {
-            $service->backfillRule($rule);
+        try {
+            if (!empty($this->getUserConfiguration()[self::BACKFILL_KEY])) {
+                return;
+            }
+            $service = $this->service();
+            if ($service->hasRules()) {
+                $service->backfill();
+            }
+            $config = $this->getUserConfiguration();
+            $config[self::BACKFILL_KEY] = true;
+            $this->setUserConfiguration($config);
+        } catch (\Throwable $e) {
+            Minz_Log::error('Title Dedup: ' . $e->getMessage());
         }
     }
 
-    private function applyRules(FreshRSS_Entry $entry, $maintenance)
+    private function service(): DedupService
     {
-        $service = $this->service();
-        $service->applyEntry($entry, $maintenance);
-    }
-
-    private function service()
-    {
-        if ($this->cachedRules === null) {
-            $config = $this->readSystemConfiguration();
-            $rulesJson = (string)($config[self::CONFIG_KEY] ?? '');
-            $this->cachedRules = RuleRepository::parseConfig($rulesJson) ?? ['rules' => []];
+        if ($this->service === null) {
+            $config = RuleRepository::parseConfig($this->rulesJson()) ?? ['rules' => []];
+            $this->service = new DedupService($config, fn(string $name): array => $this->findFeedIdsByName($name));
         }
-
-        return new DedupService($this->cachedRules);
+        return $this->service;
     }
 
-    public function currentRules()
+    /**
+     * Rules are per user. Version 0.1 was a system extension and kept them in the
+     * system configuration: use those until the user saves the settings once.
+     */
+    private function rulesJson(): string
     {
-        $config = $this->readSystemConfiguration();
-        $rulesJson = (string)($config[self::CONFIG_KEY] ?? '');
-        $parsed = RuleRepository::parseConfig($rulesJson);
+        $json = $this->getUserConfiguration()[self::CONFIG_KEY] ?? null;
+        if (is_string($json) && $json !== '') {
+            return $json;
+        }
+        $legacy = $this->getSystemConfiguration()[self::CONFIG_KEY] ?? '';
+        return is_string($legacy) ? $legacy : '';
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function currentRules(): array
+    {
+        $parsed = RuleRepository::parseConfig($this->rulesJson());
         return $parsed['rules'] ?? [];
     }
 
-    public function feedOptions()
+    /** @return list<array{id:string,name:string,label:string}> */
+    public function feedOptions(): array
     {
         if ($this->feedOptionsCache !== null) {
             return $this->feedOptionsCache;
@@ -187,7 +223,11 @@ final class TitleDedupExtension extends Minz_Extension
         return $this->feedOptionsCache;
     }
 
-    public function selectedFeedIds($rule, $prefix)
+    /**
+     * @param array<string,mixed> $rule
+     * @return list<string>
+     */
+    public function selectedFeedIds(array $rule, string $prefix): array
     {
         $ids = [];
         $idField = $prefix . '_feed_ids';
@@ -206,26 +246,15 @@ final class TitleDedupExtension extends Minz_Extension
         return $this->uniqueIds($ids);
     }
 
-    private function readSystemConfiguration()
-    {
-        $config = $this->getSystemConfiguration();
-        if (is_array($config)) {
-            return $config;
-        }
-        if (is_object($config)) {
-            return get_object_vars($config);
-        }
-
-        return [];
-    }
-
-    private function findFeedIdsByName($feedName)
+    /** @return list<string> */
+    private function findFeedIdsByName(string $feedName): array
     {
         $map = $this->feedNameMap();
         return $map[$this->normalizeFeedName($feedName)] ?? [];
     }
 
-    private function feedNameMap()
+    /** @return array<string,list<string>> */
+    private function feedNameMap(): array
     {
         if ($this->feedNameMapCache !== null) {
             return $this->feedNameMapCache;
@@ -251,25 +280,14 @@ final class TitleDedupExtension extends Minz_Extension
         return $this->feedNameMapCache;
     }
 
-    private function normalizeFeedName($feedName)
+    private function normalizeFeedName(string $feedName): string
     {
         return mb_strtolower(trim((string)$feedName), 'UTF-8');
     }
 
-    private function uniqueIds($ids)
+    /** @return list<string> */
+    private function uniqueIds(mixed $ids): array
     {
-        if (!is_array($ids)) {
-            return [];
-        }
-
-        $ids = array_map(static function ($id) {
-            return (string)(int)$id;
-        }, $ids);
-        $ids = array_values(array_unique(array_filter($ids, static function ($id) {
-            return $id !== '0';
-        })));
-        sort($ids, SORT_NUMERIC);
-
-        return $ids;
+        return RuleRepository::normalizeIds($ids);
     }
 }

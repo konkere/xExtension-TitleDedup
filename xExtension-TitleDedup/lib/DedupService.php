@@ -1,214 +1,235 @@
 <?php
+declare(strict_types=1);
 
+/**
+ * Marks entries of target feeds as read when an entry with the same (normalized) title
+ * exists in one of the source feeds of the same rule.
+ *
+ * One instance lives for the duration of a request. Titles are loaded once per rule,
+ * on the first new entry that concerns it, and then kept up to date in memory,
+ * so a refresh costs one query per rule instead of one per entry.
+ */
 final class DedupService
 {
-    private $config;
-    private $feedNameMap = null;
+    /** @var list<array<string,mixed>> enabled rules with resolved feed IDs */
+    private array $rules = [];
 
-    public function __construct($config)
+    /**
+     * Per rule index:
+     *  - src: normalized title => [feed ID => true]
+     *  - tgt: normalized title => list of unread target entries [id, tmp, feed]
+     * @var array<int,array{src:array<string,array<int,true>>,tgt:array<string,list<array{0:string,1:bool,2:int}>>}>
+     */
+    private array $state = [];
+
+    private ?TitleDedupDAO $dao = null;
+
+    /** @param array{rules?:list<array<string,mixed>>} $config */
+    public function __construct(array $config, callable $feedIdsByName)
     {
-        $this->config = $config;
+        foreach ($config['rules'] ?? [] as $rule) {
+            if (empty($rule['enabled'])) {
+                continue;
+            }
+            $source = $this->resolveFeeds($rule, 'source', $feedIdsByName);
+            $target = $this->resolveFeeds($rule, 'target', $feedIdsByName);
+            if ($source === [] || $target === []) {
+                continue;
+            }
+            $rule['source_set'] = array_fill_keys($source, true);
+            $rule['target_set'] = array_fill_keys($target, true);
+            $this->rules[] = $rule;
+        }
     }
 
-    public function rules()
+    public function hasRules(): bool
     {
-        return $this->config['rules'] ?? [];
+        return $this->rules !== [];
     }
 
-    public function applyEntry(FreshRSS_Entry $entry, $maintenance)
+    /**
+     * Called for every new entry, before it is written to `_entrytmp`.
+     */
+    public function onNewEntry(FreshRSS_Entry $entry): void
     {
-        $feedId = (string)$entry->feedId();
+        if ($entry->isUpdated()) {
+            // Updated version of an entry we already know: nothing new to deduplicate.
+            return;
+        }
+        $feedId = $entry->feedId();
         $title = $entry->title();
         if ($title === '') {
             return;
         }
 
-        $entryDao = FreshRSS_Factory::createEntryDao();
-        foreach ($this->rules() as $rule) {
-            $rule = $this->resolveRule($rule);
-            if (!$rule['enabled']) {
+        foreach ($this->rules as $index => $rule) {
+            $isSource = isset($rule['source_set'][$feedId]);
+            $isTarget = isset($rule['target_set'][$feedId]);
+            if (!$isSource && !$isTarget) {
                 continue;
             }
-            if ($rule['source_feed_ids'] === [] || $rule['target_feed_ids'] === []) {
+            $norm = $this->normalize($title, $rule);
+            if ($norm === '') {
                 continue;
             }
+            $this->load($index);
+            $state = &$this->state[$index];
 
-            $normalizedTitle = $this->normalizeTitle($title, $rule);
-            if ($normalizedTitle === '') {
-                continue;
+            // 1. A target entry whose title is already known from another source feed.
+            if ($isTarget && !$entry->isRead() && $this->knownElsewhere($state['src'][$norm] ?? [], $feedId)) {
+                $entry->_isRead(true);
             }
 
-            if (in_array($feedId, $rule['target_feed_ids'], true)) {
-                if ($this->hasMatchInSourceFeeds($entryDao, $normalizedTitle, $rule, $feedId)) {
-                    $entry->_isRead(true);
-                }
+            // 2. A source entry arriving after target copies: mark those copies.
+            if ($isSource) {
+                $this->markTargets($state, $norm, $feedId);
+                $state['src'][$norm][$feedId] = true;
             }
 
-            if ($maintenance || in_array($feedId, $rule['source_feed_ids'], true)) {
-                $ids = $this->findTargetMatches($entryDao, $normalizedTitle, $rule, null);
-                if ($ids !== []) {
-                    $entryDao->markRead($ids, true);
-                }
+            // 3. Remember an unread target entry, in case its source arrives later.
+            if ($isTarget && !$entry->isRead()) {
+                $state['tgt'][$norm][] = [$entry->id(), true, $feedId];
             }
+            unset($state);
         }
     }
 
-    public function backfillRule($rule)
+    /**
+     * One-off pass over the whole lookback window, run by the first maintenance after
+     * the rules were saved. New entries are handled by onNewEntry(), so later passes
+     * are not needed, and an entry the user marked unread again stays unread.
+     */
+    public function backfill(): void
     {
-        if (!$rule['enabled']) {
+        foreach (array_keys($this->rules) as $index) {
+            unset($this->state[$index]);
+            $this->load($index, false);
+            $state = &$this->state[$index];
+            foreach ($state['tgt'] as $norm => $targets) {
+                $src = $state['src'][$norm] ?? [];
+                $ids = [];
+                foreach ($targets as [$id, , $feedId]) {
+                    if ($this->knownElsewhere($src, $feedId)) {
+                        $ids[] = $id;
+                    }
+                }
+                $this->markRead($ids, []);
+            }
+            unset($state, $this->state[$index]);
+        }
+    }
+
+    private function load(int $index, bool $withTmp = true): void
+    {
+        if (isset($this->state[$index])) {
             return;
         }
-
-        $entryDao = FreshRSS_Factory::createEntryDao();
-        $rule = $this->resolveRule($rule);
-        if ($rule['source_feed_ids'] === [] || $rule['target_feed_ids'] === []) {
-            return;
-        }
-        foreach ($rule['source_feed_ids'] as $sourceFeedId) {
-            $sourceEntries = $this->fetchEntriesByFeeds($entryDao, [$sourceFeedId], $rule['lookback_days']);
-            foreach ($sourceEntries as $sourceEntry) {
-                $normalizedTitle = $this->normalizeTitle((string)$sourceEntry['title'], $rule);
-                if ($normalizedTitle === '') {
-                    continue;
-                }
-
-                $ids = $this->findTargetMatches($entryDao, $normalizedTitle, $rule, (string)$sourceEntry['id']);
-                if ($ids !== []) {
-                    $entryDao->markRead($ids, true);
-                }
-            }
-        }
-    }
-
-    private function hasMatchInSourceFeeds($entryDao, $normalizedTitle, $rule, $currentFeedId)
-    {
-        foreach ($this->fetchEntriesByFeeds($entryDao, $rule['source_feed_ids'], $rule['lookback_days']) as $row) {
-            if ((string)$row['id_feed'] === $currentFeedId) {
+        $rule = $this->rules[$index];
+        $state = ['src' => [], 'tgt' => []];
+        $rows = $this->dao()->fetchTitles(
+            array_keys($rule['source_set']),
+            array_keys($rule['target_set']),
+            $this->since($rule),
+            $withTmp
+        );
+        foreach ($rows as $row) {
+            $norm = $this->normalize($row['title'], $rule);
+            if ($norm === '') {
                 continue;
             }
-            if ($this->normalizeTitle((string)$row['title'], $rule) === $normalizedTitle) {
-                return true;
+            if (isset($rule['source_set'][$row['id_feed']])) {
+                $state['src'][$norm][$row['id_feed']] = true;
+            }
+            if (isset($rule['target_set'][$row['id_feed']]) && $row['is_read'] === 0) {
+                $state['tgt'][$norm][] = [$row['id'], $row['tmp'] === 1, $row['id_feed']];
             }
         }
-
-        return false;
+        $this->state[$index] = $state;
     }
 
-    private function findTargetMatches($entryDao, $normalizedTitle, $rule, $excludeEntryId)
+    /**
+     * @param array{src:array<string,array<int,true>>,tgt:array<string,list<array{0:string,1:bool,2:int}>>} $state
+     */
+    private function markTargets(array &$state, string $norm, int $sourceFeedId): void
     {
+        if (empty($state['tgt'][$norm])) {
+            return;
+        }
         $ids = [];
-        foreach ($this->fetchEntriesByFeeds($entryDao, $rule['target_feed_ids'], $rule['lookback_days']) as $row) {
-            if ($excludeEntryId !== null && (string)$row['id'] === $excludeEntryId) {
-                continue;
+        $tmpIds = [];
+        $keep = [];
+        foreach ($state['tgt'][$norm] as $target) {
+            [$id, $tmp, $feedId] = $target;
+            if ($feedId === $sourceFeedId) {
+                // A feed that is both source and target does not deduplicate against itself.
+                $keep[] = $target;
+            } elseif ($tmp) {
+                $tmpIds[] = $id;
+            } else {
+                $ids[] = $id;
             }
-            if ($this->normalizeTitle((string)$row['title'], $rule) === $normalizedTitle) {
-                $ids[] = (string)$row['id'];
-            }
         }
-
-        return array_values(array_unique($ids));
+        $this->markRead($ids, $tmpIds);
+        if ($keep === []) {
+            unset($state['tgt'][$norm]);
+        } else {
+            $state['tgt'][$norm] = $keep;
+        }
     }
 
-    private function resolveRule($rule)
+    /**
+     * @param list<string> $ids entries in `_entry`
+     * @param list<string> $tmpIds entries still in `_entrytmp`
+     */
+    private function markRead(array $ids, array $tmpIds): void
     {
-        $sourceFeedIds = $rule['source_feed_ids'];
-        foreach ($rule['source_feed_names'] as $feedName) {
-            $sourceFeedIds = array_merge($sourceFeedIds, $this->findFeedIdsByName($feedName));
+        if ($ids !== []) {
+            FreshRSS_Factory::createEntryDao()->markRead($ids, true);
         }
-
-        $targetFeedIds = $rule['target_feed_ids'];
-        foreach ($rule['target_feed_names'] as $feedName) {
-            $targetFeedIds = array_merge($targetFeedIds, $this->findFeedIdsByName($feedName));
+        if ($tmpIds !== []) {
+            $this->dao()->markTmpRead($tmpIds);
         }
-
-        $rule['source_feed_ids'] = $this->uniqueIds($sourceFeedIds);
-        $rule['target_feed_ids'] = $this->uniqueIds($targetFeedIds);
-        return $rule;
     }
 
-    private function fetchEntriesByFeeds($entryDao, $feedIds, $lookbackDays)
+    /** @param array<int,true> $feeds */
+    private function knownElsewhere(array $feeds, int $feedId): bool
     {
-        if ($feedIds === []) {
-            return [];
-        }
-
-        $placeholders = [];
-        $values = [];
-        foreach (array_values($feedIds) as $index => $feedId) {
-            $placeholder = ':feed_' . $index;
-            $placeholders[] = $placeholder;
-            $values[$placeholder] = (int)$feedId;
-        }
-
-        $since = time() - ($lookbackDays * 86400);
-        $sql = 'SELECT id, title, date, id_feed, is_read FROM `_entry` WHERE id_feed IN (' . implode(',', $placeholders) . ') AND date >= :since';
-        $values[':since'] = $since;
-
-        $rows = $entryDao->fetchAssoc($sql, $values);
-        return is_array($rows) ? $rows : [];
+        return $feeds !== [] && ($feeds !== [$feedId => true]);
     }
 
-    private function normalizeTitle($title, $rule)
+    /** @param array<string,mixed> $rule */
+    private function since(array $rule): int
     {
-        $options = [
-            'normalize_case' => $rule['normalize_case'],
-            'strip_punctuation' => $rule['strip_punctuation'],
-        ];
-
-        if (!empty($rule['normalize_whitespace'])) {
-            $title = preg_replace('/\s+/u', ' ', trim($title)) ?? trim($title);
-        }
-
-        return TitleNormalizer::normalize($title, $options);
+        return time() - max(1, (int)($rule['lookback_days'] ?? 14)) * 86400;
     }
 
-    private function findFeedIdsByName($feedName)
+    /** @param array<string,mixed> $rule */
+    private function normalize(string $title, array $rule): string
     {
-        $map = $this->feedNameMap();
-        return $map[$this->normalizeFeedName($feedName)] ?? [];
+        return TitleNormalizer::normalize($title, [
+            'normalize_whitespace' => !empty($rule['normalize_whitespace']),
+            'normalize_case' => !empty($rule['normalize_case']),
+            'strip_punctuation' => !empty($rule['strip_punctuation']),
+        ]);
     }
 
-    private function feedNameMap()
+    /**
+     * @param array<string,mixed> $rule
+     * @return list<int>
+     */
+    private function resolveFeeds(array $rule, string $side, callable $feedIdsByName): array
     {
-        if ($this->feedNameMap !== null) {
-            return $this->feedNameMap;
+        $ids = array_map('intval', $rule[$side . '_feed_ids'] ?? []);
+        foreach ($rule[$side . '_feed_names'] ?? [] as $name) {
+            $ids = array_merge($ids, array_map('intval', $feedIdsByName((string)$name)));
         }
-
-        $feedDao = FreshRSS_Factory::createFeedDao();
-        $map = [];
-        foreach ($feedDao->listFeeds() as $feed) {
-            $normalizedName = $this->normalizeFeedName($feed->name(true));
-            if ($normalizedName === '') {
-                continue;
-            }
-            if (!isset($map[$normalizedName])) {
-                $map[$normalizedName] = [];
-            }
-            $map[$normalizedName][] = (string)$feed->id();
-        }
-
-        $this->feedNameMap = [];
-        foreach ($map as $name => $ids) {
-            $this->feedNameMap[$name] = $this->uniqueIds($ids);
-        }
-
-        return $this->feedNameMap;
-    }
-
-    private function normalizeFeedName($feedName)
-    {
-        return mb_strtolower(trim((string)$feedName), 'UTF-8');
-    }
-
-    private function uniqueIds($ids)
-    {
-        $ids = array_map(static function ($id) {
-            return (string)(int)$id;
-        }, $ids);
-        $ids = array_values(array_unique(array_filter($ids, static function ($id) {
-            return $id !== '0';
-        })));
-        sort($ids, SORT_NUMERIC);
+        $ids = array_values(array_unique(array_filter($ids, static fn(int $id): bool => $id > 0)));
+        sort($ids);
         return $ids;
+    }
+
+    private function dao(): TitleDedupDAO
+    {
+        return $this->dao ??= new TitleDedupDAO();
     }
 }

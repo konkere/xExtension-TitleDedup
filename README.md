@@ -17,13 +17,28 @@ When a new entry arrives in target feed B, the extension marks it as read if the
 - One-way rules: A affects B, but B does not affect A
 - Multiple rule groups
 - Multiple source feeds and target feeds per rule
-- Title normalization: whitespace, case, punctuation
-- Maintenance backfill for cases where target entries arrive before source entries
-- Visual configuration page with existing feed selection
+- Title normalization: whitespace, case, punctuation (each can be toggled separately)
+- Works in both directions in time: a target entry is marked read whether its source copy arrived before it, in the same refresh, or later
+- One-off backfill of existing entries after the rules are saved
+- Per-user rules
+- Visual configuration page with existing feed selection, translated (English, Russian, Chinese)
+
+## How it works
+
+- When a new entry is fetched, its title is compared with the titles of the source feeds within the lookback window, including entries fetched earlier in the same refresh and not yet committed by FreshRSS. A match marks the new target entry as read.
+- When a new source entry is fetched, unread target entries with the same title are marked as read.
+- Titles are loaded once per rule and per request, so a refresh costs one query per rule.
+- After the rules are saved, the next refresh checks the existing entries within the lookback window once. Later refreshes only look at new entries, so an entry you mark as unread again stays unread.
 
 ## Installation
 
 Copy [xExtension-TitleDedup](./xExtension-TitleDedup) into your FreshRSS `extensions/` directory, then enable `Title Dedup` from the FreshRSS extension manager.
+
+Tested with FreshRSS 1.30.4 (PHP 8.3, PostgreSQL).
+
+### Upgrading from 0.1
+
+Version 0.1 was a system extension; 0.2 is a user extension. After upgrading, enable it again in each user's extension settings. Existing rules are read from the old system configuration until the user saves the settings once.
 
 ## Usage
 
