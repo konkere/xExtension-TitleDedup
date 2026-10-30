@@ -1,73 +1,71 @@
-# FreshRSS 单向同标题自动已读扩展设计
+# Title Dedup: design notes
 
-## 目标
+## Goal
 
-当目标订阅 B 新增文章时，如果它的标题与参考订阅 A 中已有文章的标题一致，则把 B 的新文章自动标记为已读。
+When a new entry arrives in a target feed and an entry with the same normalized title already exists in a source feed of the same rule, mark the target entry as read.
 
-## 范围
+## Scope
 
-- 支持多个规则组
-- 每个规则组包含多个参考源 A 和多个目标源 B
-- 单向生效：A 影响 B，B 不反向影响 A
-- 基于标题归一化后的完全一致判断
+- Several rules, each with several source feeds and several target feeds
+- One-way by default: sources affect targets, not the other way round
+- A feed may be both source and target. Listing all sections of a site on both sides keeps the first copy of each story unread and marks every later copy as read
+- Exact match after title normalization
 
-## 不做的事
+## Out of scope
 
-- 不做全文相似度去重
-- 不做跨语言语义去重
-- 不修改 FreshRSS 核心
-- 不做客户端侧去重
+- Full-text similarity
+- Cross-language deduplication
+- Changes to the FreshRSS core
+- Client-side deduplication
 
-## 方案
+## How it works
 
-做一个 FreshRSS 用户扩展，使用 `entry_before_add` 钩子处理新条目。
+### New entries (`entry_before_insert` hook)
 
-### 运行流程
+FreshRSS keeps new entries in `_entrytmp` until the end of a refresh, then moves them to `_entry`. Lookups therefore cover both tables, so copies fetched in the same refresh are compared too.
 
-1. FreshRSS 拉取到一条新文章。
-2. 扩展检查该文章所属 feed 是否命中某个规则组的目标源 B。
-3. 归一化标题。
-4. 查询该规则组的参考源 A 中是否已有同标题文章。
-5. 若命中，则将当前条目标记为已读。
+On the first new entry of a request that concerns a rule, the titles of the rule's feeds within the lookback window are loaded once, then kept up to date in memory. For each new entry, in arrival order:
 
-### 回扫
+1. If the entry belongs to a target feed, is unread, and its title is already known from another source feed, it is a duplicate and is marked as read.
+2. If the entry belongs to a source feed, is unread and is not a duplicate, unread target entries with the same title in other feeds are marked as read (the source copy arrived after them).
+3. The title is remembered as known for its feed; an unread target entry that is not a duplicate is remembered in case its source arrives later.
 
-为处理“B 先到、A 后到”的情况，增加维护回扫：
+A read entry only serves as a reference: it never marks other entries. Otherwise a copy marked by an earlier pass could mark the surviving original.
 
-- 定期检查 B 中未读文章
-- 若其标题在 A 中已存在，则补标为已读
+Updated versions of known entries are ignored.
 
-## 配置
+### One-off backfill (`freshrss_user_maintenance` hook)
 
-每个规则组包含：
+After the rules are saved, the next maintenance run replays the existing entries within the lookback window in arrival order (by entry ID), with the same logic as above. Later maintenance runs do nothing, so an entry the user marks as unread again stays unread. Saving the rules again repeats the backfill, which leaves already deduplicated entries unchanged.
+
+## Configuration
+
+Stored per user, as JSON, in the extension's user configuration. Each rule has:
 
 - `name`
-- `source_feed_ids`
-- `target_feed_ids`
 - `enabled`
+- `source_feed_ids`, `source_feed_names`
+- `target_feed_ids`, `target_feed_names`
 - `lookback_days`
 - `normalize_whitespace`
 - `normalize_case`
 - `strip_punctuation`
 
-## 文件结构
+Version 0.1 stored the rules in the system configuration; they are still read from there until the user saves the settings.
 
-- `src/metadata.json`
-- `src/extension.php`
-- `src/lib/TitleNormalizer.php`
-- `src/lib/RuleRepository.php`
-- `src/lib/DuplicateMatcher.php`
-- `src/configure.phtml`
+## Files
+
+- `metadata.json`
+- `extension.php`: hooks, settings form handling, configuration storage
+- `configure.php`, `configure.phtml`: settings page
+- `lib/DedupService.php`: deduplication logic
+- `lib/DedupDAO.php`: database queries
+- `lib/TitleNormalizer.php`
+- `lib/RuleRepository.php`: parsing and validation of the rules
+- `i18n/`: translations
 - `examples/sample-config.json`
 
-## 风险
+## Risks
 
-- 标题完全一致不等于同一新闻，可能误杀
-- 参考源过多时查询成本会上升
-- 只靠标题，难覆盖改标题转载
-
-## 验收
-
-- B 的新文章与 A 同标题时自动已读
-- 多规则组可同时生效
-- 回扫能补处理先到后到顺序反转的情况
+- Identical titles do not always mean the same story, so unrelated entries may be marked as read
+- Reposts with a rewritten title are not detected

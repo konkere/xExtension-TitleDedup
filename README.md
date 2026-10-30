@@ -15,6 +15,7 @@ When a new entry arrives in target feed B, the extension marks it as read if the
 ## Features
 
 - One-way rules: A affects B, but B does not affect A
+- Feeds can be both source and target: list all sections of a site on both sides to keep only the first copy of each story unread
 - Multiple rule groups
 - Multiple source feeds and target feeds per rule
 - Title normalization: whitespace, case, punctuation (each can be toggled separately)
