@@ -26,6 +26,12 @@ final class TitleDedupExtension extends Minz_Extension
         // FreshRSS re-initialises extensions for each user during a cron run.
         $this->service = null;
 
+        // The settings can open in the sidebar of the extensions page, which is loaded
+        // without its <head>: the script must already be on that page.
+        if (Minz_Request::controllerName() === 'extension') {
+            Minz_View::appendScript($this->getFileUrl('configure.js'));
+        }
+
         // Called for new entries only, after the user's filter actions were applied.
         $this->registerHook('entry_before_add', [$this, 'onEntryBeforeAdd']);
         $this->registerHook('freshrss_user_maintenance', [$this, 'onUserMaintenance']);
@@ -35,8 +41,8 @@ final class TitleDedupExtension extends Minz_Extension
     public function handleConfigureAction(): void
     {
         $this->registerTranslates();
-        // FreshRSS forbids inline styles and scripts (CSP), so they live in static files.
-        Minz_View::appendStyle($this->getFileUrl('configure.css'));
+        // FreshRSS forbids inline scripts (CSP), so the script is a static file.
+        // The stylesheet is linked from configure.phtml, which also works in the sidebar.
         Minz_View::appendScript($this->getFileUrl('configure.js'));
         if (!Minz_Request::isPost()) {
             return;

@@ -94,11 +94,19 @@
 		document.querySelectorAll('form.title-dedup-form').forEach(init);
 	}
 
-	if (document.readyState === 'loading') {
-		document.addEventListener('DOMContentLoaded', scan);
-	} else {
+	function start() {
 		scan();
+		// The settings can be loaded later into the sidebar of the extensions page.
+		const slider = document.getElementById('slider');
+		if (slider) {
+			new MutationObserver(scan).observe(slider, { childList: true, subtree: true });
+		}
 	}
-	// The settings panel can be loaded later into the sidebar.
-	new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+
+	// The script is loaded asynchronously: the page may still be parsing.
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', start);
+	} else {
+		start();
+	}
 })();

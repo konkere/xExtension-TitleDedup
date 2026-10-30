@@ -72,6 +72,7 @@ if (!function_exists('titleDedupRenderFeedList')) {
     }
 }
 ?>
+<link rel="stylesheet" href="<?= $this->getFileUrl('configure.css') ?>" />
 <form action="<?= _url('extension', 'configure', 'e', urlencode($this->getName())) ?>" method="post" class="title-dedup-form">
     <input type="hidden" name="_csrf" value="<?= FreshRSS_Auth::csrfToken() ?>" />
     <?php /* Enter in a text field submits the first button of the form: make that one "save", not "delete rule". */ ?>
