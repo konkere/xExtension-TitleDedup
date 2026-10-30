@@ -32,7 +32,14 @@ When a new entry arrives in target feed B, the extension marks it as read if the
 
 ## Installation
 
-Copy [xExtension-TitleDedup](./xExtension-TitleDedup) into your FreshRSS `extensions/` directory, then enable `Title Dedup` from the FreshRSS extension manager.
+The repository root is the extension itself. Clone it into your FreshRSS `extensions/` directory, then enable `Title Dedup` in the user's extension settings:
+
+```sh
+cd /path/to/FreshRSS/extensions
+git clone https://github.com/konkere/xExtension-TitleDedup.git
+```
+
+Update with `git pull` in that directory.
 
 Tested with FreshRSS 1.30.4 (PHP 8.3, PostgreSQL).
 
@@ -66,7 +73,7 @@ See [examples/sample-config.json](./examples/sample-config.json) for an example 
 
 ## Repository Layout
 
-- `xExtension-TitleDedup/`: installable FreshRSS extension directory
+- `extension.php`, `configure.php(tml)`, `metadata.json`, `lib/`, `i18n/`: the extension
 - `examples/`: sample configuration
 - `docs/`: design notes
 

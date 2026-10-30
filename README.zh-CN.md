@@ -21,7 +21,12 @@
 
 ## 安装
 
-把 [xExtension-TitleDedup](./xExtension-TitleDedup) 整个目录复制到 FreshRSS 的 `extensions/` 目录下，然后在 FreshRSS 后台启用 `Title Dedup`。
+仓库根目录即扩展本身。将仓库克隆到 FreshRSS 的 `extensions/` 目录下，然后在用户的扩展设置中启用 `Title Dedup`：
+
+```sh
+cd /path/to/FreshRSS/extensions
+git clone https://github.com/konkere/xExtension-TitleDedup.git
+```
 
 ## 使用
 
@@ -49,7 +54,7 @@
 
 ## 仓库结构
 
-- `xExtension-TitleDedup/`：可安装的 FreshRSS 扩展目录
+- `extension.php`、`configure.php(tml)`、`metadata.json`、`lib/`、`i18n/`：扩展本体
 - `examples/`：示例配置
 - `docs/`：设计说明
 
