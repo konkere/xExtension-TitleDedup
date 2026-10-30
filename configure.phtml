@@ -92,7 +92,7 @@ if (!function_exists('titleDedupRenderFeedList')) {
         $id = 'title_dedup_' . $index . '_';
         ?>
         <fieldset class="title-dedup-rule" data-title-dedup-rule="<?= $index ?>">
-            <legend><?= $e(($rule['name'] ?? '') !== '' ? (string)$rule['name'] : _t('ext.title_dedup.rule.untitled')) ?></legend>
+            <legend data-untitled="<?= _t('ext.title_dedup.rule.untitled') ?>"><?= $e(($rule['name'] ?? '') !== '' ? (string)$rule['name'] : _t('ext.title_dedup.rule.untitled')) ?></legend>
 
             <div class="form-group">
                 <label class="group-name" for="<?= $id ?>name"><?= _t('ext.title_dedup.rule.name') ?></label>

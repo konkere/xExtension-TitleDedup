@@ -16,7 +16,7 @@
 - Feeds can be both source and target: the first copy of a story stays unread and later copies are marked as read. Read entries never mark other entries, so saving the rules again is safe.
 - The extension sits at the repository root and can be cloned directly into `extensions/`.
 - Uses the `entry_before_add` hook: only new entries are checked, after the user's filter actions.
-- Title comparison: punctuation is replaced by spaces (`A—B` equals `A — B`), invisible characters such as soft hyphens are ignored, `ё` equals `е` when case is ignored.
+- Title comparison: punctuation and decorative symbols, with the spaces around them, are replaced by one space (`A—B` equals `A — B`); currency and math symbols are kept (`100$` ≠ `100€`, `C++` ≠ `C`); invisible characters such as soft hyphens are ignored; `ё` equals `е` when case is ignored.
 - Feed selection with checkboxes grouped by category, a filter and "Select shown" / "Clear shown" buttons; "Targets are the same as sources" option.
 - Styles and script of the settings page moved to static files: FreshRSS's Content Security Policy blocked the inline ones, so they never applied.
-- Settings page: pressing Enter in a text field no longer deletes the rule; saving unchanged rules does not re-run the backfill.
+- Settings page: pressing Enter in a text field no longer deletes the rule; the backfill re-runs only when the effective rules change (not on renaming or adding an empty rule); the rule title follows its name as you type.

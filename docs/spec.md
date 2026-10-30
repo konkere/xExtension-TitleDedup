@@ -44,7 +44,7 @@ HTML entities are decoded and invisible format characters (soft hyphen, zero-wid
 
 - whitespace: runs of whitespace collapse to one space;
 - case: lower case, and `ё` compares equal to `е`;
-- punctuation: punctuation and symbols become spaces, so `A—B` and `A — B` compare equal.
+- punctuation: punctuation and decorative symbols, with the spaces around them, become one space, so `A—B` and `A — B` compare equal. Currency and math symbols are kept, so `100$` and `100€`, or `C++` and `C`, stay different.
 
 ### One-off backfill (`freshrss_user_maintenance` hook)
 

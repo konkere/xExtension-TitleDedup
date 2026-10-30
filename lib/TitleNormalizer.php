@@ -15,11 +15,13 @@ final class TitleNormalizer
         $value = preg_replace('/\p{Cf}+/u', '', $value) ?? $value;
 
         if (!empty($options['strip_punctuation'])) {
-            // Replace rather than remove, so "A—B" and "A — B" compare equal.
-            $value = preg_replace('/[\p{P}\p{S}]+/u', ' ', $value) ?? $value;
+            // Punctuation and decorative symbols, together with the spaces around them, become
+            // one space, so "A—B" and "A — B" compare equal. Currency and math symbols are kept:
+            // "100$" is not "100€", "C++" is not "C".
+            $value = preg_replace('/\s*[\p{P}\p{Sk}\p{So}]+\s*/u', ' ', $value) ?? $value;
         }
 
-        if (!empty($options['normalize_whitespace']) || !empty($options['strip_punctuation'])) {
+        if (!empty($options['normalize_whitespace'])) {
             $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
         }
 

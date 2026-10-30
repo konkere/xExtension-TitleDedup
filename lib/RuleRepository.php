@@ -91,6 +91,27 @@ final class RuleRepository
         return ['rules' => $rules];
     }
 
+    /**
+     * What the deduplication depends on: enabled rules with feeds on both sides,
+     * without their names.
+     *
+     * @param array{rules:list<array<string,mixed>>} $config
+     */
+    public static function fingerprint(array $config): string
+    {
+        $effective = [];
+        foreach ($config['rules'] as $rule) {
+            $hasSource = ($rule['source_feed_ids'] ?? []) !== [] || ($rule['source_feed_names'] ?? []) !== [];
+            $hasTarget = ($rule['target_feed_ids'] ?? []) !== [] || ($rule['target_feed_names'] ?? []) !== [];
+            if (empty($rule['enabled']) || !$hasSource || !$hasTarget) {
+                continue;
+            }
+            unset($rule['name']);
+            $effective[] = $rule;
+        }
+        return (string)json_encode($effective);
+    }
+
     /** @return list<string> */
     public static function normalizeIds(mixed $ids): array
     {

@@ -62,6 +62,8 @@ git clone https://github.com/konkere/xExtension-TitleDedup.git
 - `source_feed_names`: названия лент-источников, можно сочетать с `source_feed_ids`
 - `target_feed_ids`: целевые ленты B
 - `target_feed_names`: названия целевых лент, можно сочетать с `target_feed_ids`
+
+Названия лент сопоставляются с лентами при чтении правил. Сохранение со страницы настроек записывает только ID лент: названия лент, которых в этот момент нет, отбрасываются.
 - `lookback_days`: сравнивать только за последние N дней
 - `normalize_case`: не учитывать регистр
 - `normalize_whitespace`: схлопывать повторяющиеся пробелы

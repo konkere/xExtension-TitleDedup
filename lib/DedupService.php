@@ -126,14 +126,13 @@ final class DedupService
     public function backfill(): void
     {
         foreach ($this->rules as $index => $rule) {
-            // Replay the existing entries in arrival order, as if they were new.
+            // Replay the existing entries in arrival order (sorted by the query), as if they were new.
             $rows = $this->dao()->fetchTitles(
                 array_keys($rule['source_set']),
                 array_keys($rule['target_set']),
                 $this->since($rule),
                 false
             );
-            usort($rows, static fn(array $a, array $b): int => (int)$a['id'] <=> (int)$b['id']);
 
             $this->state[$index] = ['src' => [], 'tgt' => []];
             $this->batch = [];

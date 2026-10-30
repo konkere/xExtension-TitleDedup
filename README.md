@@ -62,6 +62,8 @@ Version 0.1 was a system extension; 0.2 is a user extension. After upgrading, en
 - `source_feed_names`: source feed names, can be mixed with `source_feed_ids`
 - `target_feed_ids`: target feeds B
 - `target_feed_names`: target feed names, can be mixed with `target_feed_ids`
+
+Feed names are resolved when the rules are read. Saving from the settings page stores feed IDs only: names of feeds that do not exist at that moment are dropped.
 - `lookback_days`: compare only within the last N days
 - `normalize_case`: ignore letter case
 - `normalize_whitespace`: collapse repeated whitespace

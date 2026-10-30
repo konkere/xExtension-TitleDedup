@@ -12,6 +12,19 @@
 
 		form.querySelectorAll('.title-dedup-feeds').forEach(initFeedList);
 		form.querySelectorAll('.title-dedup-rule').forEach(initSameToggle);
+		form.querySelectorAll('.title-dedup-rule').forEach(initLegend);
+	}
+
+	function initLegend(rule) {
+		const legend = rule.querySelector(':scope > legend');
+		const name = rule.querySelector('input[name$="[name]"]');
+		if (!legend || !name) {
+			return;
+		}
+		const untitled = legend.dataset.untitled || '';
+		name.addEventListener('input', () => {
+			legend.textContent = name.value.trim() || untitled;
+		});
 	}
 
 	function initFeedList(details) {

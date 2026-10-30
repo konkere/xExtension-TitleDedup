@@ -59,11 +59,15 @@ final class TitleDedupExtension extends Minz_Extension
         }
 
         $json = (string)json_encode($parsed, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $previous = RuleRepository::parseConfig($this->rulesJson()) ?? ['rules' => []];
         if ($json !== $this->getUserConfigurationString(self::CONFIG_KEY)) {
             $this->setUserConfigurationValue(self::CONFIG_KEY, $json);
-            // Rules changed: let the next maintenance run check the whole lookback window once.
-            $this->setUserConfigurationValue(self::BACKFILL_KEY, false);
             $this->service = null;
+        }
+        if (RuleRepository::fingerprint($parsed) !== RuleRepository::fingerprint($previous)) {
+            // The rules that actually run changed: check the whole lookback window once.
+            // Renaming a rule or adding an empty one does not count.
+            $this->setUserConfigurationValue(self::BACKFILL_KEY, false);
         }
         Minz_Request::setGoodNotification(_t('ext.title_dedup.notify.saved'));
     }
@@ -178,7 +182,10 @@ final class TitleDedupExtension extends Minz_Extension
                     'group' => $category->name(),
                 ];
             }
-            usort($group, static fn(array $a, array $b): int => strcasecmp($a['label'], $b['label']));
+            usort($group, static fn(array $a, array $b): int => strcmp(
+                mb_strtolower($a['label'], 'UTF-8'),
+                mb_strtolower($b['label'], 'UTF-8')
+            ));
             array_push($feeds, ...$group);
         }
 

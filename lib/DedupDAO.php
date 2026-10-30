@@ -28,6 +28,8 @@ final class TitleDedupDAO extends Minz_ModelPdo
         if ($withTmp) {
             $sql .= " UNION ALL SELECT id, title, id_feed, is_read, 1 AS tmp FROM `_entrytmp` WHERE {$where}";
         }
+        // Arrival order: the backfill replays entries in this order.
+        $sql .= ' ORDER BY id';
 
         $rows = $this->query($sql, $values);
         $result = [];
@@ -51,12 +53,12 @@ final class TitleDedupDAO extends Minz_ModelPdo
      */
     public function markTmpRead(array $ids): void
     {
-        if ($ids === []) {
-            return;
+        // Stay below SQLite's limit on bound parameters.
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $values = [];
+            $in = $this->placeholders('i', $chunk, $values);
+            $this->execute("UPDATE `_entrytmp` SET is_read = 1 WHERE is_read = 0 AND id IN ({$in})", $values);
         }
-        $values = [];
-        $in = $this->placeholders('i', $ids, $values);
-        $this->execute("UPDATE `_entrytmp` SET is_read = 1 WHERE is_read = 0 AND id IN ({$in})", $values);
     }
 
     /**
