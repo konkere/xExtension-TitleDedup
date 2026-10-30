@@ -1,5 +1,7 @@
 # Changelog
 
+[Русская версия](./CHANGELOG.ru.md)
+
 ## 0.2.0
 
 - Duplicates fetched in the same refresh are now detected: lookups also cover `_entrytmp`, where FreshRSS keeps new entries until the end of the refresh.
@@ -11,3 +13,5 @@
 - Titles are compared after decoding HTML entities.
 - Interface translated via FreshRSS i18n: English, Russian, Chinese.
 - Updated entries are no longer re-checked.
+- Feeds can be both source and target: the first copy of a story stays unread and later copies are marked as read. Read entries never mark other entries, so saving the rules again is safe.
+- The extension sits at the repository root and can be cloned directly into `extensions/`.

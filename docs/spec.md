@@ -1,5 +1,7 @@
 # Title Dedup: design notes
 
+[Русская версия](./spec.ru.md)
+
 ## Goal
 
 When a new entry arrives in a target feed and an entry with the same normalized title already exists in a source feed of the same rule, mark the target entry as read.

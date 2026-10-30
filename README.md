@@ -1,8 +1,8 @@
 # FreshRSS Title Dedup
 
-FreshRSS extension for one-way cross-feed deduplication by title.
+FreshRSS extension for cross-feed deduplication by title.
 
-Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
+Other languages: [Русский](./README.ru.md) · [中文](./README.zh-CN.md)
 
 When a new entry arrives in target feed B, the extension marks it as read if the same title has already appeared in source feed A.
 
@@ -27,7 +27,7 @@ When a new entry arrives in target feed B, the extension marks it as read if the
 ## How it works
 
 - When a new entry is fetched, its title is compared with the titles of the source feeds within the lookback window, including entries fetched earlier in the same refresh and not yet committed by FreshRSS. A match marks the new target entry as read.
-- When a new source entry is fetched, unread target entries with the same title are marked as read.
+- When a new unread source entry is fetched, unread target entries with the same title are marked as read. A read entry only serves as a reference and never marks other entries.
 - Titles are loaded once per rule and per request, so a refresh costs one query per rule.
 - After the rules are saved, the next refresh checks the existing entries within the lookback window once. Later refreshes only look at new entries, so an entry you mark as unread again stays unread.
 
