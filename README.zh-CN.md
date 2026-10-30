@@ -37,7 +37,7 @@
 
 ```sh
 cd /path/to/FreshRSS/extensions
-git clone https://github.com/chenhaoc/freshrss-dedup-extension.git xExtension-TitleDedup
+git clone https://github.com/konkere/xExtension-TitleDedup.git
 ```
 
 更新：在 `extensions/xExtension-TitleDedup` 中执行 `git pull`。

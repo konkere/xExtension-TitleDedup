@@ -37,7 +37,7 @@ The repository root is the extension itself. Clone it into your FreshRSS `extens
 
 ```sh
 cd /path/to/FreshRSS/extensions
-git clone https://github.com/chenhaoc/freshrss-dedup-extension.git xExtension-TitleDedup
+git clone https://github.com/konkere/xExtension-TitleDedup.git
 ```
 
 Update with `git pull` in `extensions/xExtension-TitleDedup`.
