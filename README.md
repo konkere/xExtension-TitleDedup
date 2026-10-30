@@ -22,7 +22,7 @@ When a new entry arrives in target feed B, the extension marks it as read if the
 - Works in both directions in time: a target entry is marked read whether its source copy arrived before it, in the same refresh, or later
 - One-off backfill of existing entries after the rules are saved
 - Per-user rules
-- Visual configuration page with existing feed selection, translated (English, Russian, Chinese)
+- Settings page with feeds grouped by category, a filter and bulk selection; translated (English, Russian, Chinese)
 
 ## How it works
 
@@ -50,12 +50,11 @@ Version 0.1 was a system extension; 0.2 is a user extension. After upgrading, en
 
 ## Usage
 
-1. Open the extension configuration page.
-2. If the page is opened from the sidebar, click the full-page editor first.
-3. Create a rule group.
-4. Select source feeds and target feeds.
-5. Set lookback days and title normalization options.
-6. Save the configuration.
+1. Open the extension settings. In the sidebar panel the filter and bulk selection buttons do not work: use "Edit in full page".
+2. Tick the source feeds. Type in the filter (e.g. a site name) and use "Select shown" to tick all matching feeds at once.
+3. Tick the target feeds, or check "Targets are the same as sources" to deduplicate a group of feeds among themselves.
+4. Set the lookback period and the title comparison options.
+5. Save. "Add rule" adds another rule.
 
 ## Rule Fields
 

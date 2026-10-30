@@ -35,6 +35,9 @@ final class TitleDedupExtension extends Minz_Extension
     public function handleConfigureAction(): void
     {
         $this->registerTranslates();
+        // FreshRSS forbids inline styles and scripts (CSP), so they live in static files.
+        Minz_View::appendStyle($this->getFileUrl('configure.css'));
+        Minz_View::appendScript($this->getFileUrl('configure.js'));
         if (!Minz_Request::isPost()) {
             return;
         }
@@ -71,69 +74,26 @@ final class TitleDedupExtension extends Minz_Extension
      */
     private function applyUiAction(array $rulesPost, string $action): array
     {
-        // A feed chosen in a picker counts even if "Add" was not clicked before saving.
-        foreach ($rulesPost as $i => $rule) {
-            if (!is_array($rule)) {
-                continue;
-            }
-            foreach (['source', 'target'] as $side) {
-                $pickedId = (string)($rule[$side . '_feed_picker'] ?? '');
-                if ($pickedId !== '') {
-                    $idsKey = $side . '_feed_ids';
-                    $current = is_array($rule[$idsKey] ?? null) ? $rule[$idsKey] : [];
-                    $rulesPost[$i][$idsKey] = $this->uniqueIds(array_merge($current, [$pickedId]));
-                }
-            }
-        }
-
         if ($action === 'add_rule') {
-            array_unshift($rulesPost, $this->blankRulePost());
-            return $rulesPost;
+            $rulesPost[] = self::blankRule();
+        } elseif (str_starts_with($action, 'remove_rule:')) {
+            unset($rulesPost[(int)substr($action, strlen('remove_rule:'))]);
         }
-
-        if (strpos($action, 'remove_rule:') === 0) {
-            $ruleIndex = (int)substr($action, strlen('remove_rule:'));
-            if (isset($rulesPost[$ruleIndex])) {
-                unset($rulesPost[$ruleIndex]);
-                $rulesPost = array_values($rulesPost);
-            }
-            return $rulesPost;
-        }
-
-        if (strpos($action, 'remove_') === 0) {
-            $payload = explode(':', substr($action, 7), 3);
-            $side = $payload[0] ?? '';
-            $ruleIndex = isset($payload[1]) ? (int)$payload[1] : null;
-            $feedId = $payload[2] ?? null;
-            if ($ruleIndex !== null && isset($rulesPost[$ruleIndex]) && in_array($side, ['source', 'target'], true) && $feedId !== null) {
-                $idsKey = $side . '_feed_ids';
-                $currentIds = $rulesPost[$ruleIndex][$idsKey] ?? [];
-                if (is_array($currentIds)) {
-                    $rulesPost[$ruleIndex][$idsKey] = array_values(array_filter($currentIds, static function ($id) use ($feedId) {
-                        return (string)$id !== (string)$feedId;
-                    }));
-                }
-            }
-            return $rulesPost;
-        }
-
-        return $rulesPost;
+        return array_values($rulesPost);
     }
 
     /** @return array<string,mixed> */
-    private function blankRulePost(): array
+    public static function blankRule(): array
     {
         return [
             'name' => '',
-            'enabled' => 1,
+            'enabled' => true,
             'source_feed_ids' => [],
-            'source_feed_picker' => '',
             'target_feed_ids' => [],
-            'target_feed_picker' => '',
             'lookback_days' => 14,
-            'normalize_whitespace' => 1,
-            'normalize_case' => 1,
-            'strip_punctuation' => 1,
+            'normalize_whitespace' => true,
+            'normalize_case' => true,
+            'strip_punctuation' => true,
         ];
     }
 

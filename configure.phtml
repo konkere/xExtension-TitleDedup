@@ -4,510 +4,152 @@ declare(strict_types=1);
 
 $rules = $this->currentRules();
 if ($rules === []) {
-    $rules = [[
-        'name' => '',
-        'enabled' => true,
-        'source_feed_ids' => [],
-        'source_feed_names' => [],
-        'target_feed_ids' => [],
-        'target_feed_names' => [],
-        'lookback_days' => 14,
-        'normalize_whitespace' => true,
-        'normalize_case' => true,
-        'strip_punctuation' => true,
-    ]];
+    $rules = [TitleDedupExtension::blankRule()];
 }
 
-$feeds = $this->feedOptions();
-$feedLabelMap = [];
-foreach ($feeds as $feed) {
-    $feedLabelMap[$feed['id']] = $feed['label'];
+// Feeds grouped by category, in the user's category order.
+$groups = [];
+foreach ($this->feedOptions() as $feed) {
+    $groups[$feed['group']][] = $feed;
 }
 
-if (!function_exists('titleDedupRenderFeedChip')) {
-    function titleDedupRenderFeedChip($ruleIndex, $side, $inputName, $feedId, $feedLabel): string
+$e = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+
+if (!function_exists('titleDedupRenderFeedList')) {
+    /**
+     * @param array<string,list<array{id:string,name:string,label:string,group:string}>> $groups
+     * @param list<string> $selectedIds
+     */
+    function titleDedupRenderFeedList(int $index, string $side, array $groups, array $selectedIds, string $title, string $help, bool $hidden = false): string
     {
+        $e = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+        $selected = array_fill_keys($selectedIds, true);
+        $selectedNames = [];
+        foreach ($groups as $feeds) {
+            foreach ($feeds as $feed) {
+                if (isset($selected[$feed['id']])) {
+                    $selectedNames[] = $feed['label'];
+                }
+            }
+        }
+        $inputName = 'rules[' . $index . '][' . $side . '_feed_ids][]';
+
         ob_start();
         ?>
-        <span class="title-dedup-feed-chip" data-feed-id="<?php echo htmlspecialchars($feedId, ENT_QUOTES, 'UTF-8'); ?>">
-            <span class="title-dedup-feed-chip-label"><?php echo htmlspecialchars($feedLabel, ENT_QUOTES, 'UTF-8'); ?></span>
-            <button
-                type="submit"
-                class="title-dedup-chip-remove"
-                name="rule_action"
-                value="remove_<?php echo htmlspecialchars($side . ':' . $ruleIndex . ':' . $feedId, ENT_QUOTES, 'UTF-8'); ?>"
-                aria-label="<?php echo _t('ext.title_dedup.picker.remove'); ?>"
-            >×</button>
-            <input type="hidden" name="<?php echo htmlspecialchars($inputName, ENT_QUOTES, 'UTF-8'); ?>" value="<?php echo htmlspecialchars($feedId, ENT_QUOTES, 'UTF-8'); ?>">
-        </span>
-        <?php
-        return ob_get_clean();
-    }
-}
-
-if (!function_exists('titleDedupRenderFeedPanel')) {
-    function titleDedupRenderFeedPanel($ruleIndex, $side, $feeds, $feedLabelMap, $selectedIds, $title, $help): string
-    {
-        ob_start();
-        $inputName = 'rules[' . $ruleIndex . '][' . $side . '_feed_ids][]';
-        ?>
-        <div class="title-dedup-feed-panel" data-feed-panel data-input-name="<?php echo htmlspecialchars($inputName, ENT_QUOTES, 'UTF-8'); ?>">
-            <div class="title-dedup-feed-panel-title"><?php echo htmlspecialchars($title, ENT_QUOTES, 'UTF-8'); ?></div>
-            <div class="title-dedup-feed-panel-help"><?php echo htmlspecialchars($help, ENT_QUOTES, 'UTF-8'); ?></div>
-            <table class="title-dedup-panel-table" cellspacing="0" cellpadding="0" border="0">
-                <tr>
-                    <td class="title-dedup-panel-select">
-                        <select
-                            class="title-dedup-picker"
-                            data-role="feed-picker"
-                            name="rules[<?php echo htmlspecialchars((string)$ruleIndex, ENT_QUOTES, 'UTF-8'); ?>][<?php echo htmlspecialchars($side, ENT_QUOTES, 'UTF-8'); ?>_feed_picker]"
-                        >
-                            <option value=""><?php echo _t('ext.title_dedup.picker.choose'); ?></option>
-                            <?php $currentGroup = null; ?>
-                            <?php foreach ($feeds as $feed): ?>
-                                <?php if ($feed['group'] !== $currentGroup): ?>
-                                    <?php if ($currentGroup !== null): ?></optgroup><?php endif; ?>
-                                    <optgroup label="<?php echo htmlspecialchars($feed['group'], ENT_QUOTES, 'UTF-8'); ?>">
-                                    <?php $currentGroup = $feed['group']; ?>
-                                <?php endif; ?>
-                                <option value="<?php echo htmlspecialchars($feed['id'], ENT_QUOTES, 'UTF-8'); ?>" data-feed-label="<?php echo htmlspecialchars($feed['label'], ENT_QUOTES, 'UTF-8'); ?>">
-                                    <?php echo htmlspecialchars($feed['label'], ENT_QUOTES, 'UTF-8'); ?>
-                                </option>
-                            <?php endforeach; ?>
-                            <?php if ($currentGroup !== null): ?></optgroup><?php endif; ?>
-                        </select>
-                    </td>
-                    <td class="title-dedup-panel-button">
-                        <button
-                            type="submit"
-                            class="btn"
-                            name="rule_action"
-                            value="add_<?php echo htmlspecialchars($side . ':' . $ruleIndex, ENT_QUOTES, 'UTF-8'); ?>"
-                        ><?php echo _t('ext.title_dedup.picker.add'); ?></button>
-                    </td>
-                </tr>
-            </table>
-            <div class="title-dedup-feed-chips" data-role="feed-chip-list">
-                <?php foreach ($selectedIds as $feedId): ?>
-                    <?php if (!isset($feedLabelMap[$feedId])) { continue; } ?>
-                    <?php echo titleDedupRenderFeedChip($ruleIndex, $side, $inputName, $feedId, $feedLabelMap[$feedId]); ?>
-                <?php endforeach; ?>
+        <div class="form-group title-dedup-feeds-group<?= $hidden ? ' title-dedup-hidden' : '' ?>" data-title-dedup-side="<?= $e($side) ?>">
+            <div class="group-name"><?= $e($title) ?></div>
+            <div class="group-controls">
+                <p class="help"><?= $e($help) ?></p>
+                <details class="title-dedup-feeds" <?= $selectedNames === [] ? 'open' : '' ?>>
+                    <summary>
+                        <?= _t('ext.title_dedup.feeds.selected') ?>:
+                        <span class="title-dedup-count"><?= count($selectedNames) ?></span>
+                        <span class="title-dedup-selected-names"><?= $e(implode(', ', $selectedNames)) ?></span>
+                    </summary>
+                    <div class="title-dedup-tools">
+                        <input type="search" class="title-dedup-filter" placeholder="<?= _t('ext.title_dedup.feeds.filter') ?>" aria-label="<?= _t('ext.title_dedup.feeds.filter') ?>" />
+                        <button type="button" class="btn title-dedup-select-visible"><?= _t('ext.title_dedup.feeds.select_visible') ?></button>
+                        <button type="button" class="btn title-dedup-clear-visible"><?= _t('ext.title_dedup.feeds.clear_visible') ?></button>
+                    </div>
+                    <div class="title-dedup-feed-list">
+                        <?php foreach ($groups as $groupName => $feeds): ?>
+                            <fieldset class="title-dedup-category">
+                                <legend><?= $e((string)$groupName) ?></legend>
+                                <?php foreach ($feeds as $feed): ?>
+                                    <label class="title-dedup-feed">
+                                        <input type="checkbox" name="<?= $e($inputName) ?>" value="<?= $e($feed['id']) ?>" <?= isset($selected[$feed['id']]) ? 'checked' : '' ?> />
+                                        <span class="title-dedup-feed-name"><?= $e($feed['label']) ?></span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </fieldset>
+                        <?php endforeach; ?>
+                    </div>
+                </details>
             </div>
         </div>
         <?php
-        return ob_get_clean();
-    }
-}
-
-if (!function_exists('titleDedupRenderRuleCard')) {
-    function titleDedupRenderRuleCard($index, $rule, $feeds, $feedLabelMap, $sourceSelectedIds, $targetSelectedIds): string
-    {
-        ob_start();
-        ?>
-        <section class="title-dedup-rule-card" data-title-dedup-rule data-title-dedup-rule-index="<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>">
-            <hr class="title-dedup-rule-divider">
-            <table class="title-dedup-head-table" cellspacing="0" cellpadding="0" border="0">
-                <tr>
-                    <td class="title-dedup-head-label">
-                        <label for="rule_name_<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>"><?php echo _t('ext.title_dedup.rule.name'); ?></label>
-                    </td>
-                    <td class="title-dedup-head-input">
-                        <input
-                            type="text"
-                            id="rule_name_<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>"
-                            name="rules[<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>][name]"
-                            value="<?php echo htmlspecialchars((string)($rule['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
-                            placeholder="<?php echo _t('ext.title_dedup.rule.name_placeholder'); ?>"
-                        >
-                    </td>
-                    <td class="title-dedup-head-check">
-                        <label for="rule_enabled_<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>">
-                            <input
-                                type="checkbox"
-                                id="rule_enabled_<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>"
-                                name="rules[<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>][enabled]"
-                                value="1"
-                                <?php echo !isset($rule['enabled']) || $rule['enabled'] ? 'checked' : ''; ?>
-                            >
-                            <?php echo _t('ext.title_dedup.rule.enabled'); ?>
-                        </label>
-                    </td>
-                    <td class="title-dedup-head-button">
-                        <button
-                            type="submit"
-                            class="btn"
-                            name="rule_action"
-                            value="remove_rule:<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>"
-                        ><?php echo _t('ext.title_dedup.rule.remove'); ?></button>
-                    </td>
-                </tr>
-            </table>
-
-            <div class="title-dedup-spacer">&nbsp;</div>
-            <?php
-            echo titleDedupRenderFeedPanel(
-                $index,
-                'source',
-                $feeds,
-                $feedLabelMap,
-                $sourceSelectedIds,
-                _t('ext.title_dedup.source.title'),
-                _t('ext.title_dedup.source.help')
-            );
-            ?>
-
-            <div class="title-dedup-spacer">&nbsp;</div>
-            <?php
-            echo titleDedupRenderFeedPanel(
-                $index,
-                'target',
-                $feeds,
-                $feedLabelMap,
-                $targetSelectedIds,
-                _t('ext.title_dedup.target.title'),
-                _t('ext.title_dedup.target.help')
-            );
-            ?>
-
-            <div class="title-dedup-spacer">&nbsp;</div>
-            <table class="title-dedup-meta-table" cellspacing="0" cellpadding="0" border="0">
-                <tr>
-                    <td class="title-dedup-meta-label">
-                        <label for="rule_lookback_<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>"><?php echo _t('ext.title_dedup.lookback'); ?></label>
-                    </td>
-                    <td class="title-dedup-meta-value">
-                        <input
-                            type="number"
-                            id="rule_lookback_<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>"
-                            name="rules[<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>][lookback_days]"
-                            min="1"
-                            max="3650"
-                            value="<?php echo htmlspecialchars((string)($rule['lookback_days'] ?? 14), ENT_QUOTES, 'UTF-8'); ?>"
-                        >
-                    </td>
-                </tr>
-            </table>
-
-            <table class="title-dedup-meta-table title-dedup-meta-table-last" cellspacing="0" cellpadding="0" border="0">
-                <tr>
-                    <td class="title-dedup-meta-label"><?php echo _t('ext.title_dedup.normalize.title'); ?></td>
-                    <td class="title-dedup-meta-value">
-                        <?php foreach (['whitespace' => 'normalize_whitespace', 'case' => 'normalize_case', 'punctuation' => 'strip_punctuation'] as $label => $key): ?>
-                            <?php $inputId = 'rule_' . $key . '_' . $index; ?>
-                            <label class="title-dedup-normalize-option" for="<?php echo htmlspecialchars($inputId, ENT_QUOTES, 'UTF-8'); ?>">
-                                <input
-                                    type="checkbox"
-                                    id="<?php echo htmlspecialchars($inputId, ENT_QUOTES, 'UTF-8'); ?>"
-                                    name="rules[<?php echo htmlspecialchars((string)$index, ENT_QUOTES, 'UTF-8'); ?>][<?php echo $key; ?>]"
-                                    value="1"
-                                    <?php echo !empty($rule[$key]) ? 'checked' : ''; ?>
-                                >
-                                <?php echo _t('ext.title_dedup.normalize.' . $label); ?>
-                            </label>
-                        <?php endforeach; ?>
-                    </td>
-                </tr>
-            </table>
-            <hr class="title-dedup-rule-divider title-dedup-rule-divider-bottom">
-        </section>
-        <?php
-        return ob_get_clean();
+        return (string)ob_get_clean();
     }
 }
 ?>
-<form action="<?php echo _url('extension', 'configure', 'e', urlencode($this->getName())); ?>" method="post" class="title-dedup-form">
-    <input type="hidden" name="_csrf" value="<?php echo FreshRSS_Auth::csrfToken(); ?>" />
+<form action="<?= _url('extension', 'configure', 'e', urlencode($this->getName())) ?>" method="post" class="title-dedup-form">
+    <input type="hidden" name="_csrf" value="<?= FreshRSS_Auth::csrfToken() ?>" />
     <?php /* Enter in a text field submits the first button of the form: make that one "save", not "delete rule". */ ?>
     <button type="submit" name="rule_action" value="save" class="title-dedup-default-submit" tabindex="-1" aria-hidden="true"></button>
-    <table class="title-dedup-page-table" cellspacing="0" cellpadding="0" border="0">
-        <tr>
-            <td class="title-dedup-page-title-cell">
-                <h2 class="title-dedup-page-title">Title Dedup</h2>
-            </td>
-            <td class="title-dedup-page-button-cell">
-                <a
-                    class="btn title-dedup-open-full"
-                    href="<?php echo _url('extension', 'configure', 'e', urlencode($this->getName())); ?>"
-                    target="_top"
-                    rel="noopener"
-                ><?php echo _t('ext.title_dedup.open_full'); ?></a>
-            </td>
-        </tr>
-        <tr>
-            <td colspan="2" class="title-dedup-page-copy-cell">
-                <p class="title-dedup-page-copy"><?php echo _t('ext.title_dedup.intro'); ?></p>
-                <p class="title-dedup-page-copy"><?php echo _t('ext.title_dedup.backfill_hint'); ?></p>
-                <p class="title-dedup-subtitle"><?php echo _t('ext.title_dedup.sidebar_hint'); ?></p>
-            </td>
-        </tr>
-    </table>
 
-    <div id="title-dedup-rules">
-        <?php foreach (array_values($rules) as $index => $rule): ?>
-            <?php
-            $sourceSelectedIds = $this->selectedFeedIds($rule, 'source');
-            $targetSelectedIds = $this->selectedFeedIds($rule, 'target');
-            echo titleDedupRenderRuleCard($index, $rule, $feeds, $feedLabelMap, $sourceSelectedIds, $targetSelectedIds);
-            ?>
-        <?php endforeach; ?>
-    </div>
+    <p class="title-dedup-open-full">
+        <a class="btn" href="<?= _url('extension', 'configure', 'e', urlencode($this->getName())) ?>" target="_top"><?= _t('ext.title_dedup.open_full') ?></a>
+    </p>
+    <p class="help"><?= _t('ext.title_dedup.intro') ?></p>
+    <p class="help"><?= _t('ext.title_dedup.backfill_hint') ?></p>
 
+    <?php foreach (array_values($rules) as $index => $rule): ?>
+        <?php
+        $sourceIds = $this->selectedFeedIds($rule, 'source');
+        $targetIds = $this->selectedFeedIds($rule, 'target');
+        $sameTargets = $sourceIds !== [] && $sourceIds === $targetIds;
+        $prefix = 'rules[' . $index . ']';
+        $id = 'title_dedup_' . $index . '_';
+        ?>
+        <fieldset class="title-dedup-rule" data-title-dedup-rule="<?= $index ?>">
+            <legend><?= $e(($rule['name'] ?? '') !== '' ? (string)$rule['name'] : _t('ext.title_dedup.rule.untitled')) ?></legend>
+
+            <div class="form-group">
+                <label class="group-name" for="<?= $id ?>name"><?= _t('ext.title_dedup.rule.name') ?></label>
+                <div class="group-controls">
+                    <input type="text" id="<?= $id ?>name" name="<?= $prefix ?>[name]" value="<?= $e((string)($rule['name'] ?? '')) ?>" placeholder="<?= _t('ext.title_dedup.rule.name_placeholder') ?>" />
+                    <label class="checkbox" for="<?= $id ?>enabled">
+                        <input type="checkbox" id="<?= $id ?>enabled" name="<?= $prefix ?>[enabled]" value="1" <?= !isset($rule['enabled']) || $rule['enabled'] ? 'checked' : '' ?> />
+                        <?= _t('ext.title_dedup.rule.enabled') ?>
+                    </label>
+                </div>
+            </div>
+
+            <?= titleDedupRenderFeedList($index, 'source', $groups, $sourceIds, _t('ext.title_dedup.source.title'), _t('ext.title_dedup.source.help')) ?>
+
+            <div class="form-group">
+                <div class="group-controls">
+                    <label class="checkbox" for="<?= $id ?>same">
+                        <input type="checkbox" class="title-dedup-same" id="<?= $id ?>same" name="<?= $prefix ?>[targets_same]" value="1" <?= $sameTargets ? 'checked' : '' ?> />
+                        <?= _t('ext.title_dedup.rule.targets_same') ?>
+                    </label>
+                    <p class="help"><?= _t('ext.title_dedup.rule.targets_same_help') ?></p>
+                </div>
+            </div>
+
+            <?= titleDedupRenderFeedList($index, 'target', $groups, $targetIds, _t('ext.title_dedup.target.title'), _t('ext.title_dedup.target.help'), $sameTargets) ?>
+
+            <div class="form-group">
+                <label class="group-name" for="<?= $id ?>lookback"><?= _t('ext.title_dedup.lookback') ?></label>
+                <div class="group-controls">
+                    <input type="number" id="<?= $id ?>lookback" name="<?= $prefix ?>[lookback_days]" min="1" max="3650" value="<?= (int)($rule['lookback_days'] ?? 14) ?>" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="group-name"><?= _t('ext.title_dedup.normalize.title') ?></div>
+                <div class="group-controls">
+                    <?php foreach (['whitespace' => 'normalize_whitespace', 'case' => 'normalize_case', 'punctuation' => 'strip_punctuation'] as $label => $key): ?>
+                        <label class="checkbox" for="<?= $id . $key ?>">
+                            <input type="checkbox" id="<?= $id . $key ?>" name="<?= $prefix ?>[<?= $key ?>]" value="1" <?= !empty($rule[$key]) ? 'checked' : '' ?> />
+                            <?= _t('ext.title_dedup.normalize.' . $label) ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="group-controls">
+                    <button type="submit" class="btn btn-attention" name="rule_action" value="remove_rule:<?= $index ?>"><?= _t('ext.title_dedup.rule.remove') ?></button>
+                </div>
+            </div>
+        </fieldset>
+    <?php endforeach; ?>
 
     <div class="form-group form-actions">
         <div class="group-controls">
-            <button type="submit" class="btn" name="rule_action" value="add_rule"><?php echo _t('ext.title_dedup.rule.add'); ?></button>
-            <button type="submit" class="btn btn-important"><?php echo _t('ext.title_dedup.save'); ?></button>
+            <button type="submit" class="btn btn-important" name="rule_action" value="save"><?= _t('ext.title_dedup.save') ?></button>
+            <button type="submit" class="btn" name="rule_action" value="add_rule"><?= _t('ext.title_dedup.rule.add') ?></button>
         </div>
     </div>
 </form>
-
-<style>
-.title-dedup-default-submit {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    opacity: 0;
-    pointer-events: none;
-}
-
-.title-dedup-form {
-    max-width: 760px;
-    margin: 0 auto;
-    text-align: left;
-}
-
-.title-dedup-page-table,
-.title-dedup-head-table,
-.title-dedup-panel-table,
-.title-dedup-meta-table {
-    border: 0;
-    border-collapse: collapse;
-    border-spacing: 0;
-}
-
-.title-dedup-page-table {
-    width: 100%;
-}
-
-.title-dedup-normalize-option {
-    display: block;
-    margin-bottom: 4px;
-}
-
-.title-dedup-page-title {
-    margin: 0;
-}
-
-.title-dedup-page-button-cell {
-    padding-left: 16px;
-    white-space: nowrap;
-}
-
-.title-dedup-page-copy-cell {
-    padding-top: 8px;
-}
-
-.title-dedup-page-copy,
-.title-dedup-subtitle {
-    margin: 0 0 8px;
-    opacity: 0.75;
-    font-size: 0.95em;
-}
-
-.title-dedup-rule-divider {
-    margin: 0 0 18px;
-    border: 0;
-    border-top: 1px solid #d9d9d9;
-}
-
-.title-dedup-rule-divider-bottom {
-    margin: 24px 0 0;
-}
-
-.title-dedup-head-label,
-.title-dedup-meta-label {
-    padding-right: 12px;
-    white-space: nowrap;
-}
-
-.title-dedup-head-input {
-    width: 100%;
-    padding-right: 16px;
-}
-
-.title-dedup-head-input input {
-    width: 100%;
-}
-
-.title-dedup-head-check {
-    padding-right: 16px;
-    white-space: nowrap;
-}
-
-.title-dedup-head-button,
-.title-dedup-panel-button {
-    white-space: nowrap;
-}
-
-.title-dedup-spacer {
-    line-height: 18px;
-}
-
-.title-dedup-feed-panel-title {
-    margin: 0;
-    font-size: 1.4em;
-    font-weight: 700;
-    line-height: 1.2;
-}
-
-.title-dedup-feed-panel-help {
-    margin: 4px 0 8px;
-    opacity: 0.75;
-}
-
-.title-dedup-panel-select {
-    width: 100%;
-    padding-right: 12px;
-}
-
-.title-dedup-panel-select select {
-    width: 100%;
-}
-
-.title-dedup-feed-chips {
-    margin-top: 10px;
-}
-
-.title-dedup-feed-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0 8px 8px 0;
-    border: 1px solid currentColor;
-    border-radius: 999px;
-    padding: 4px 8px 4px 10px;
-    background: transparent;
-}
-
-.title-dedup-feed-chip-label {
-    white-space: nowrap;
-}
-
-.title-dedup-chip-remove {
-    border: 0;
-    background: transparent;
-    color: #a00;
-    font-size: 18px;
-    line-height: 1;
-    padding: 0 2px;
-    cursor: pointer;
-}
-
-.title-dedup-meta-table {
-    margin-top: 0;
-}
-
-.title-dedup-meta-table-last {
-    margin-top: 16px;
-}
-
-</style>
-
-<script>
-(function () {
-    var key = 'titleDedupScrollY:' + window.location.pathname + window.location.search;
-    var anchorKey = key + ':anchor';
-    var restoreAttempts = [0, 50, 200, 600];
-
-    if (window.history && 'scrollRestoration' in window.history) {
-        window.history.scrollRestoration = 'manual';
-    }
-
-    function getRuleCards() {
-        return Array.prototype.slice.call(document.querySelectorAll('[data-title-dedup-rule]'));
-    }
-
-    function getAnchorRuleIndex() {
-        var cards = getRuleCards();
-        var candidate = null;
-        var bestTop = -Infinity;
-        var marker = 140;
-
-        for (var i = 0; i < cards.length; i++) {
-            var card = cards[i];
-            var rect = card.getBoundingClientRect();
-            if (rect.bottom <= 0) {
-                continue;
-            }
-            if (rect.top <= marker && rect.top > bestTop) {
-                candidate = card.getAttribute('data-title-dedup-rule-index') || '';
-                bestTop = rect.top;
-            }
-        }
-
-        if (candidate !== null) {
-            return candidate;
-        }
-
-        return cards.length ? (cards[0].getAttribute('data-title-dedup-rule-index') || '') : '';
-    }
-
-    function saveScroll() {
-        try {
-            window.sessionStorage.setItem(key, String(window.scrollY || window.pageYOffset || 0));
-            window.sessionStorage.setItem(anchorKey, getAnchorRuleIndex());
-        } catch (e) {
-        }
-    }
-
-    function restoreScrollOnce() {
-        var value = null;
-        var anchor = '';
-        try {
-            value = window.sessionStorage.getItem(key);
-            anchor = window.sessionStorage.getItem(anchorKey) || '';
-        } catch (e) {
-            return;
-        }
-
-        if (anchor) {
-            var selector = '[data-title-dedup-rule-index="' + anchor.replace(/"/g, '\\"') + '"]';
-            var el = document.querySelector(selector);
-            if (el && typeof el.scrollIntoView === 'function') {
-                el.scrollIntoView({ block: 'start' });
-            }
-        }
-
-        if (value !== null) {
-            var y = parseInt(value, 10);
-            if (!isNaN(y)) {
-                window.scrollTo(0, y);
-            }
-        }
-    }
-
-    function restoreScroll() {
-        for (var i = 0; i < restoreAttempts.length; i++) {
-            window.setTimeout(restoreScrollOnce, restoreAttempts[i]);
-        }
-
-        window.setTimeout(function () {
-            try {
-                window.sessionStorage.removeItem(key);
-                window.sessionStorage.removeItem(anchorKey);
-            } catch (e) {
-            }
-        }, 1200);
-    }
-
-    var form = document.querySelector('.title-dedup-form');
-    if (form) {
-        form.addEventListener('submit', saveScroll, true);
-    }
-    window.addEventListener('beforeunload', saveScroll);
-    window.addEventListener('pagehide', saveScroll);
-    window.addEventListener('load', restoreScroll);
-    window.addEventListener('pageshow', restoreScroll);
-})();
-</script>

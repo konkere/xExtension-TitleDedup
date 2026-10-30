@@ -23,12 +23,18 @@ final class RuleRepository
             // Forms of version 0.1 had a single checkbox for all three options.
             $all = isset($rule['normalize_all']) ? self::normalizeBool($rule['normalize_all']) : null;
 
+            $sourceIds = self::normalizeIds($rule['source_feed_ids'] ?? []);
+            // "Targets are the same as sources": the target list is ignored.
+            $targetIds = self::normalizeBool($rule['targets_same'] ?? false)
+                ? $sourceIds
+                : self::normalizeIds($rule['target_feed_ids'] ?? []);
+
             $normalizedRules[] = [
                 'name' => trim((string)($rule['name'] ?? '')),
                 'enabled' => self::normalizeBool($rule['enabled'] ?? false),
-                'source_feed_ids' => self::normalizeIds($rule['source_feed_ids'] ?? []),
+                'source_feed_ids' => $sourceIds,
                 'source_feed_names' => [],
-                'target_feed_ids' => self::normalizeIds($rule['target_feed_ids'] ?? []),
+                'target_feed_ids' => $targetIds,
                 'target_feed_names' => [],
                 'lookback_days' => self::lookback($rule['lookback_days'] ?? 14),
                 'normalize_whitespace' => $all ?? self::normalizeBool($rule['normalize_whitespace'] ?? false),
